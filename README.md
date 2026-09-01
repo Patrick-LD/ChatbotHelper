@@ -23,7 +23,7 @@ vurderer selv, om et spørgsmål kræver dokumentationssøgning, et tool-kald el
 
 | Fase | Status |
 | --- | --- |
-| GitHub-opsætning (branches, protection, CI) | ✅ |
+| GitHub-opsætning (branches, protection, CI) | ✅ verificeret |
 | Fase 1 — Fundament | ⬜ |
 | Fase 2 — RAG-kernen | ⬜ |
 | Fase 3 — Statiske tools | ⬜ |
