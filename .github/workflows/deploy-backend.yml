@@ -8,29 +8,41 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: hashFiles('Chatbot.sln') != ''
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Check for solution
+        id: check
+        run: echo "exists=${{ hashFiles('Chatbot.sln') != '' }}" >> $GITHUB_OUTPUT
+
       - name: Setup .NET 9
+        if: steps.check.outputs.exists == 'true'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
 
       - name: Restore dependencies
+        if: steps.check.outputs.exists == 'true'
         run: dotnet restore Chatbot.sln
 
       - name: Build
+        if: steps.check.outputs.exists == 'true'
         run: dotnet build src/Chatbot.Api --configuration Release --no-restore
 
       - name: Publish
+        if: steps.check.outputs.exists == 'true'
         run: dotnet publish src/Chatbot.Api --configuration Release --output ./publish
 
       - name: Deploy to Azure App Service
+        if: steps.check.outputs.exists == 'true'
         uses: azure/webapps-deploy@v3
         with:
           app-name: chatbothelper-api
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: ./publish
+
+      - name: Skipped (no solution yet)
+        if: steps.check.outputs.exists != 'true'
+        run: echo "Chatbot.sln findes ikke endnu - deploy springes over."

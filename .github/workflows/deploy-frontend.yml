@@ -8,25 +8,32 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: hashFiles('frontend/package.json') != ''
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check for frontend
+        id: check
+        run: echo "exists=${{ hashFiles('frontend/package.json') != '' }}" >> $GITHUB_OUTPUT
+
       - name: Setup Node.js
+        if: steps.check.outputs.exists == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
       - name: Install dependencies
+        if: steps.check.outputs.exists == 'true'
         run: npm install
         working-directory: ./frontend
 
       - name: Build
+        if: steps.check.outputs.exists == 'true'
         run: npm run build
         working-directory: ./frontend
 
       - name: Upload to Azure Blob Storage
+        if: steps.check.outputs.exists == 'true'
         uses: azure/CLI@v2
         with:
           azcliversion: latest
@@ -36,3 +43,7 @@ jobs:
               --source frontend/dist \
               --destination '$web' \
               --overwrite true
+
+      - name: Skipped (no frontend yet)
+        if: steps.check.outputs.exists != 'true'
+        run: echo "frontend/package.json findes ikke endnu - deploy springes over."
