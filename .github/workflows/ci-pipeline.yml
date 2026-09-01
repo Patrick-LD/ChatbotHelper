@@ -1,0 +1,41 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for solution
+        id: check
+        run: echo "exists=${{ hashFiles('Chatbot.sln') != '' }}" >> $GITHUB_OUTPUT
+
+      - name: Setup .NET 9
+        if: steps.check.outputs.exists == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore dependencies
+        if: steps.check.outputs.exists == 'true'
+        run: dotnet restore Chatbot.sln
+
+      - name: Build solution
+        if: steps.check.outputs.exists == 'true'
+        run: dotnet build Chatbot.sln --configuration Release --no-restore
+
+      - name: Run tests
+        if: steps.check.outputs.exists == 'true'
+        run: dotnet test Chatbot.sln --configuration Release --no-build --verbosity normal
+
+      - name: Skipped (no solution yet)
+        if: steps.check.outputs.exists != 'true'
+        run: echo "Chatbot.sln findes ikke endnu - build og test springes over (se fase 1.2 i BUILD_GUIDE.md)."
