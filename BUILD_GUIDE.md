@@ -68,25 +68,43 @@ Bruger → Chat-API (ASP.NET Core)
 **Mål:** Et kørende skelet.
 
 **1.1 Lokalt miljø**
-- [ ] Installér Ollama fra ollama.com
-- [ ] Hent en chatmodel: `ollama pull llama3.1`
-- [ ] Test at den svarer i terminalen: `ollama run llama3.1`
-- [ ] Installér Docker Desktop (skal bruges til vektor-databasen i fase 2)
+- [x] Installér Ollama fra ollama.com (v0.33.2)
+- [x] Hent en chatmodel: `ollama pull llama3.1` (og `nomic-embed-text` er allerede hentet — klar til fase 2.2)
+- [x] Test at den svarer — verificeret gennem `POST /chat`
+- [x] Installér Docker Desktop (skal bruges til vektor-databasen i fase 2)
+
+> **Fælde: to Ollama-servere på port 11434 (løst).** Der kørte en Ollama i Docker fra et tidligere
+> projekt. Docker publicerer på `[::]`, mens Windows-installationen binder `127.0.0.1` — begge på
+> port 11434. `localhost` slår op som IPv6 og ramte derfor Docker-containeren, som har andre modeller.
+> Begge servere havde `nomic-embed-text`, så fejlen ville have været usynlig i fase 2: indeksering og
+> søgning mod hver sin udgave af embedding-modellen giver ingen fejl, kun dårligere søgeresultater.
+>
+> Derfor er den gamle stak stoppet (`ollama`, `qdrant`, `chatbot-backend`, `chatbot-frontend`) —
+> stoppet, ikke slettet, og volumes er urørte. Hentes tilbage med
+> `docker start ollama qdrant chatbot-backend chatbot-frontend`. Konfigurationen peger fortsat
+> eksplicit på `127.0.0.1` og ikke `localhost`, så det ikke kan gå galt igen.
+>
+> Sidegevinst: port 6333/6334 er ledige til fase 2's egen Qdrant.
 
 **1.2 Projektopsætning**
-- [ ] Opret et ASP.NET Core Web API-projekt (`dotnet new webapi`)
-- [ ] Opret en solution med to projekter: `Chatbot.Api` og `Chatbot.Core` (interfaces og domænelogik — så forbliver API'et tyndt)
-- [ ] Installér NuGet-pakker: `Microsoft.SemanticKernel` og Ollama-connectoren
-- [ ] Sæt Git-repo op med `.gitignore` fra dag ét
+- [x] Opret et ASP.NET Core Web API-projekt (`dotnet new webapi`)
+- [x] Opret en solution med to projekter: `Chatbot.Api` og `Chatbot.Core` (interfaces og domænelogik — så forbliver API'et tyndt) — plus `tests/Chatbot.Tests`, så CI'ens `dotnet test` har noget at køre
+- [x] Installér NuGet-pakker: ~~`Microsoft.SemanticKernel`~~ `Microsoft.Extensions.AI` + `OllamaSharp` (se note nedenfor)
+- [x] Sæt Git-repo op med `.gitignore` fra dag ét
 
 **1.3 Første chat**
-- [ ] Registrér `IChatClient` mod Ollama (`http://localhost:11434`) i DI
-- [ ] Lav et `POST /chat`-endpoint, der tager en besked og returnerer modellens svar
-- [ ] Tilføj chathistorik: gem samtalens beskeder (i hukommelsen er fint til at starte med) og send dem med i hvert kald
-- [ ] Skriv en simpel systemprompt ("Du er en hjælpsom assistent for...") og læs den fra en konfigurationsfil, så den er nem at justere
+- [x] Registrér `IChatClient` mod Ollama (`http://localhost:11434`) i DI
+- [x] Lav et `POST /chat`-endpoint, der tager en besked og returnerer modellens svar
+- [x] Tilføj chathistorik: gem samtalens beskeder (i hukommelsen er fint til at starte med) og send dem med i hvert kald
+- [x] Skriv en simpel systemprompt ("Du er en hjælpsom assistent for...") og læs den fra en konfigurationsfil, så den er nem at justere
 
 **1.4 Afprøvning**
-- [ ] Test via Swagger/curl: stil 3-4 opfølgende spørgsmål og bekræft, at botten husker konteksten
+- [x] Test via Swagger/curl: stil 3-4 opfølgende spørgsmål og bekræft, at botten husker konteksten — 4 ture kørt mod llama3.1: botten gengav navn og afdeling fra tur 1 og kunne referere til "punkt nummer to" fra sit eget tidligere svar
+
+> **Pakkevalg:** `Microsoft.SemanticKernel.Connectors.Ollama` er stadig alpha og kræver `#pragma`-undertrykkelse
+> af SKEXP-advarsler. Vi bruger i stedet `Microsoft.Extensions.AI` (den abstraktion Semantic Kernel selv bygger
+> på) med `OllamaSharp` som connector. Adgangen sker gennem `IChatClient`, som er den samme grænseflade uanset
+> udbyder — Semantic Kernel kan lægges ovenpå i fase 3, hvis dets planner/tool-features viser sig at være nødvendige.
 
 **Leverance:** Du kan chatte med botten lokalt — uden tools og uden RAG.
 
