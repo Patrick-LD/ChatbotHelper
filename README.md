@@ -8,7 +8,7 @@ vurderer selv, om et spørgsmål kræver dokumentationssøgning, et tool-kald el
 
 👉 **[BUILD_GUIDE.md](BUILD_GUIDE.md)** — projektplan, arkitektur, faser og tjekpunkter.
 👉 **[docs/FASE-1-FORKLARET.md](docs/FASE-1-FORKLARET.md)** — gennemgang af fase 1-koden og begrundelserne bag valgene.
-👉 **[docs/evaluering/FASE-2-FORKLARET.md](docs/evaluering/FASE-2-FORKLARET.md)** — RAG-kernen forklaret, inkl. evaluering og baseline.
+👉 **[docs/FASE-2-FORKLARET.md](docs/FASE-2-FORKLARET.md)** — RAG-kernen forklaret, inkl. evaluering og baseline.
 
 ## Teknologi
 
@@ -83,7 +83,7 @@ dotnet run --project tools/Chatbot.Eval -- docs/evaluering/evalueringssaet.json 
 | `tests/Chatbot.Tests` | Enhedstests mod fakes: `FakeChatClient`, `FakeEmbeddingGenerator`, `InMemoryVectorStore` |
 | `tools/Chatbot.Eval` | Konsolværktøj der kører evalueringssættet og skriver en Markdown-rapport |
 | `data/dokumentation` | Testdokumentation (fiktiv) der indekseres af `/ingest` |
-| `docs/evaluering` | Evalueringssæt, resultater pr. kørsel og fase 2-forklaring |
+| `docs/evaluering` | Evalueringssæt og resultater pr. kørsel |
 
 Systemprompt, model og historik-længde konfigureres i `Chatbot`-sektionen, og chunking, `TopK`, `MinScore`,
 embedding-model og databaseforbindelse i `Rag`-sektionen i [appsettings.json](src/Chatbot.Api/appsettings.json) —
