@@ -1,6 +1,6 @@
 # Fase 2 forklaret — RAG-kernen: hvad koden gør, og hvorfor
 
-Denne fil er gennemgangen af fase 2 i samme ånd som [FASE-1-FORKLARET.md](../FASE-1-FORKLARET.md):
+Denne fil er gennemgangen af fase 2 i samme ånd som [FASE-1-FORKLARET.md](FASE-1-FORKLARET.md):
 **hvad** hver del gør, men mest **hvorfor** — for det er begrundelserne, der skal kunne forsvares
 til eksamen. Nederst står evalueringen, som er dét, der beviser, at det virker.
 
@@ -185,7 +185,7 @@ dokument — ikke bare at svaret indeholdt de rigtige ord.
 
 Projektplanen siger: lav det fra dag ét. Grunden er, at RAG-kvalitet ikke kan mærkes — den skal
 måles. Man kan stille tre spørgsmål i Swagger, få tre gode svar og tro, det virker. Sættet på
-20 spørgsmål med facit ([evalueringssaet.json](evalueringssaet.json)) stiller de samme spørgsmål
+20 spørgsmål med facit ([evalueringssaet.json](evaluering/evalueringssaet.json)) stiller de samme spørgsmål
 hver gang, på samme måde, og giver ét tal. Ændrer man chunking, prompt eller model, kører man
 det igen og ser, om tallet gik op eller ned. Det er også sådan, skiftet fra Ollama til en
 cloud-model bliver en beslutning frem for en fornemmelse.
@@ -221,7 +221,7 @@ til at justere — og hvorfor den er konfiguration, ikke en konstant.
 
 ### Baseline
 
-Resultatet af den første kørsel står i [resultater/2026-09-09-baseline.md](resultater/2026-09-09-baseline.md)
+Resultatet af den første kørsel står i [resultater/2026-09-09-baseline.md](evaluering/resultater/2026-09-09-baseline.md)
 med alle spørgsmål, svar og kilder. Opsætningen var:
 
 | Knap | Værdi |
@@ -275,7 +275,7 @@ docker compose up -d                      # Postgres + pgvector
 dotnet run --project src/Chatbot.Api      # http://localhost:5022
 ```
 
-Kør derefter i [Chatbot.Api.http](../../src/Chatbot.Api/Chatbot.Api.http) eller med curl:
+Kør derefter i [Chatbot.Api.http](../src/Chatbot.Api/Chatbot.Api.http) eller med curl:
 
 ```bash
 curl -X POST http://localhost:5022/ingest

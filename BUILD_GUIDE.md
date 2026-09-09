@@ -144,7 +144,7 @@ Bruger → Chat-API (ASP.NET Core)
 > båndet er smalt, og grænsen skal justeres pr. embedding-model. De fire fejl i baseline fordeler sig
 > på model (2), retrieval (1) og prompt (1); ingen ligger i pipelinens kode. Analysen står i rapporten.
 
-👉 Gennemgang af koden og begrundelserne: [docs/evaluering/FASE-2-FORKLARET.md](docs/evaluering/FASE-2-FORKLARET.md)
+👉 Gennemgang af koden og begrundelserne: [docs/FASE-2-FORKLARET.md](docs/FASE-2-FORKLARET.md)
 
 **Leverance:** "Hvordan opretter jeg en medarbejder?" besvares korrekt ud fra dokumentationen — verificeret: modellen kalder selv `soeg_i_dokumentation`, svarer ud fra `medarbejderoprettelse-i-personalenet.md` og henviser til afsnittet.
 
