@@ -71,7 +71,7 @@ Bruger → Chat-API (ASP.NET Core)
 - [x] Installér Ollama fra ollama.com (v0.33.2)
 - [x] Hent en chatmodel: `ollama pull llama3.1` (og `nomic-embed-text` er allerede hentet — klar til fase 2.2)
 - [x] Test at den svarer — verificeret gennem `POST /chat`
-- [x] Installér Docker Desktop (skal bruges til vektor-databasen i fase 2)
+- [x] Installér Docker Desktop (bruges til Postgres/pgvector fra fase 2)
 
 > **Fælde: to Ollama-servere på port 11434 (løst).** Der kørte en Ollama i Docker fra et tidligere
 > projekt. Docker publicerer på `[::]`, mens Windows-installationen binder `127.0.0.1` — begge på
@@ -112,32 +112,41 @@ Bruger → Chat-API (ASP.NET Core)
 **Mål:** Botten kan svare ud fra dokumentation.
 
 **2.1 Vektor-database**
-- [ ] Beslut: Qdrant eller pgvector (vælg pgvector, hvis du alligevel vil have Postgres til tool-registry og chathistorik)
-- [ ] Start databasen i Docker og gem opsætningen i en `docker-compose.yml`
-- [ ] Definér et interface i `Chatbot.Core` (f.eks. `IVectorStore` med `UpsertAsync` og `SearchAsync`), og implementér det mod den valgte database
+- [x] Beslut: Qdrant eller pgvector → **pgvector**, fordi Postgres alligevel skal bruges til tool-registry (fase 4) og chathistorik (fase 5) — én database til det hele
+- [x] Start databasen i Docker og gem opsætningen i en `docker-compose.yml` (`pgvector/pgvector:pg17`, bundet til `127.0.0.1:5432`)
+- [x] Definér `IVectorStore` i `Chatbot.Core` (`EnsureCreatedAsync`, `ClearAsync`, `UpsertAsync`, `SearchAsync`, `CountAsync`) og implementér det i det nye projekt `Chatbot.Infrastructure` (`PgVectorStore`, cosinus-lighed, HNSW-indeks)
 
 **2.2 Embeddings**
-- [ ] Hent embedding-model: `ollama pull nomic-embed-text`
-- [ ] Registrér `IEmbeddingGenerator` i DI
-- [ ] Test: generér en embedding for en teststreng og bekræft dimensionen
+- [x] Hent embedding-model: `ollama pull nomic-embed-text`
+- [x] Registrér `IEmbeddingGenerator` i DI (OllamaSharp, samme mønster som `IChatClient`)
+- [x] Test: embedding af en teststreng gav 768 dimensioner — `Rag:Embedding:Dimensions` er sat til 768, og ingestion fejler tydeligt, hvis modellen giver noget andet
 
 **2.3 Ingestion-pipeline**
-- [ ] Saml 5-10 rigtige dokumenter fra jeres dokumentation som testdata
-- [ ] Byg indlæsning af dokumenter (start med Markdown/tekst; PDF og Word kan komme senere)
-- [ ] Implementér chunking: start simpelt med ~500 tokens pr. chunk og lidt overlap — finjustér senere ud fra evalueringssættet
-- [ ] Gem metadata pr. chunk (kildedokument, afsnit/overskrift), så botten kan henvise til kilden
-- [ ] Pak det hele som et genkørbart job (konsol-kommando eller endpoint), der tømmer og genopbygger indekset
+- [x] Saml 5-10 dokumenter som testdata → 7 **fiktive** dokumenter i `data/dokumentation` (personalehåndbog, medarbejderoprettelse, IT-adgange, udgifter, onboarding, fratrædelse, hjemmearbejde). Skal erstattes med rigtig dokumentation, når den er til rådighed
+- [x] Byg indlæsning af dokumenter (`FileDocumentLoader`: Markdown/tekst, rekursivt)
+- [x] Implementér chunking (`TextChunker`: del ved overskrifter, derefter ~2000 tegn ≈ 500 tokens med 200 tegns overlap, klip ved afsnit/sætning)
+- [x] Gem metadata pr. chunk (kildedokument, overskrift, løbenummer) — returneres som `sources` i chat-svaret
+- [x] Pak det hele som et genkørbart job → `POST /ingest` tømmer og genopbygger indekset (7 dokumenter → 45 chunks på 3 s)
 
 **2.4 Søgning som tool**
-- [ ] Implementér `søg_i_dokumentation`: tag brugerens spørgsmål → embedding → hent top 3-5 chunks
-- [ ] Registrér det som Semantic Kernel-funktion med en god beskrivelse
-- [ ] Justér systemprompten: botten skal svare ud fra de hentede chunks og sige det ærligt, hvis dokumentationen ikke dækker spørgsmålet
+- [x] Implementér `soeg_i_dokumentation`: spørgsmål → embedding → top 5 chunks over `MinScore`
+- [x] Registrér det som funktion → `AIFunctionFactory.Create` via `IChatToolProvider`, udført af `UseFunctionInvocation()` i `IChatClient`-pipelinen (Microsoft.Extensions.AI i stedet for Semantic Kernel, jf. fase 1)
+- [x] Justér systemprompten: svar ud fra uddragene, henvis til kilden, sig ærligt når dokumentationen ikke dækker
 
 **2.5 Evaluering**
-- [ ] Skriv evalueringssættet: 15-20 spørgsmål med facit
-- [ ] Kør sættet og notér resultatet — det er din baseline fremover
+- [x] Skriv evalueringssættet: 20 spørgsmål med facit i `docs/evaluering/evalueringssaet.json` (16 med svar, 2 uden dækning, 2 almen viden) og et værktøj til at køre det: `tools/Chatbot.Eval`
+- [x] Kør sættet og notér resultatet → **16/20 = 80 %** ([baseline-rapport](docs/evaluering/resultater/2026-09-09-baseline.md))
 
-**Leverance:** "Hvordan opretter jeg en medarbejder?" besvares korrekt ud fra dokumentationen.
+> **Fund under evaluering:** Ren vektorsøgning returnerer *altid* de nærmeste chunks — også når de
+> ikke er relevante. "Hvad er reglerne for firmabil?" gav fem uddrag om firma*kort* (lighed ~0,57),
+> og modellen digtede et svar ud fra dem. Derfor `MinScore = 0.6`: hits under grænsen kasseres, og
+> toolet siger eksplicit, at intet blev fundet. Relevante hits lå på 0,68-0,80, støj på 0,50-0,65 —
+> båndet er smalt, og grænsen skal justeres pr. embedding-model. De fire fejl i baseline fordeler sig
+> på model (2), retrieval (1) og prompt (1); ingen ligger i pipelinens kode. Analysen står i rapporten.
+
+👉 Gennemgang af koden og begrundelserne: [docs/evaluering/FASE-2-FORKLARET.md](docs/evaluering/FASE-2-FORKLARET.md)
+
+**Leverance:** "Hvordan opretter jeg en medarbejder?" besvares korrekt ud fra dokumentationen — verificeret: modellen kalder selv `soeg_i_dokumentation`, svarer ud fra `medarbejderoprettelse-i-personalenet.md` og henviser til afsnittet.
 
 ### Fase 3 — Statiske tools (proof of concept)
 **Mål:** Botten kan udføre én handling.

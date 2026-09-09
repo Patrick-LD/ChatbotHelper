@@ -8,6 +8,7 @@ vurderer selv, om et spørgsmål kræver dokumentationssøgning, et tool-kald el
 
 👉 **[BUILD_GUIDE.md](BUILD_GUIDE.md)** — projektplan, arkitektur, faser og tjekpunkter.
 👉 **[docs/FASE-1-FORKLARET.md](docs/FASE-1-FORKLARET.md)** — gennemgang af fase 1-koden og begrundelserne bag valgene.
+👉 **[docs/evaluering/FASE-2-FORKLARET.md](docs/evaluering/FASE-2-FORKLARET.md)** — RAG-kernen forklaret, inkl. evaluering og baseline.
 
 ## Teknologi
 
@@ -17,7 +18,7 @@ vurderer selv, om et spørgsmål kræver dokumentationssøgning, et tool-kald el
 | AI-framework | Microsoft.Extensions.AI (`IChatClient`) + OllamaSharp |
 | LLM | Ollama lokalt → cloud-API senere |
 | Embeddings | Ollama (`nomic-embed-text`) |
-| Vektor-database | Qdrant eller pgvector (Docker) |
+| Vektor-database | Postgres + pgvector (Docker) |
 | Tool-protokol | MCP (`ModelContextProtocol`) |
 
 ## Status
@@ -26,7 +27,7 @@ vurderer selv, om et spørgsmål kræver dokumentationssøgning, et tool-kald el
 | --- | --- |
 | GitHub-opsætning (branches, protection, CI) | ✅ verificeret |
 | Fase 1 — Fundament | ✅ verificeret mod llama3.1 |
-| Fase 2 — RAG-kernen | ⬜ |
+| Fase 2 — RAG-kernen | ✅ baseline 16/20 (80 %) |
 | Fase 3 — Statiske tools | ⬜ |
 | Fase 4 — Dynamisk tool-registry + MCP | ⬜ |
 | Fase 5 — Hærdning og guidning | ⬜ |
@@ -36,43 +37,65 @@ vurderer selv, om et spørgsmål kræver dokumentationssøgning, et tool-kald el
 ```bash
 # Forudsætninger: .NET 9 SDK, Docker Desktop, Ollama
 ollama pull llama3.1
+ollama pull nomic-embed-text
 
+docker compose up -d                   # Postgres + pgvector på 127.0.0.1:5432
 dotnet test Chatbot.sln
 dotnet run --project src/Chatbot.Api   # http://localhost:5022
 ```
 
 Swagger UI: <http://localhost:5022/swagger>. Klar-tjek: `GET /health`.
 
-Chat via curl — svaret indeholder et `conversationId`, som sendes med i næste kald,
-så botten husker konteksten:
+Indeksér dokumentationen første gang (og efter ændringer i `data/dokumentation`):
 
 ```bash
-curl -X POST http://localhost:5022/chat -H "Content-Type: application/json" \
-  -d '{"message":"Jeg hedder Rene. Hvad kan du hjælpe med?"}'
+curl -X POST http://localhost:5022/ingest
+```
 
-curl -X POST http://localhost:5022/chat -H "Content-Type: application/json" \
-  -d '{"message":"Hvad hedder jeg?","conversationId":"<id fra svaret>"}'
+Chat via curl — svaret indeholder et `conversationId`, som sendes med i næste kald,
+så botten husker konteksten, og `sources` med de dokumentationsafsnit, botten slog op:
+
+```bash
+curl -X POST http://localhost:5022/chat -H "Content-Type: application/json"   -d '{"message":"Hvordan opretter jeg en ny medarbejder?"}'
+
+curl -X POST http://localhost:5022/chat -H "Content-Type: application/json"   -d '{"message":"Hvilke oplysninger skal jeg have klar?","conversationId":"<id fra svaret>"}'
 ```
 
 Samme flow ligger klikbart i [Chatbot.Api.http](src/Chatbot.Api/Chatbot.Api.http).
+`GET /search?q=...` viser de rå søgeresultater uden modellen — det første sted at kigge, når et svar er dårligt.
+
+### Evaluering
+
+Evalueringssættet ([docs/evaluering/evalueringssaet.json](docs/evaluering/evalueringssaet.json)) køres mod et kørende API
+og skriver en rapport. Kør det efter hver ændring af chunking, prompt eller model:
+
+```bash
+dotnet run --project tools/Chatbot.Eval -- docs/evaluering/evalueringssaet.json docs/evaluering/resultater/<dato>-<aendring>.md
+```
 
 ### Projektstruktur
 
 | Sti | Indhold |
 | --- | --- |
-| `src/Chatbot.Api` | Tyndt web-lag: DI-opsætning, `POST /chat`, `GET /health`, Swagger |
-| `src/Chatbot.Core` | `IChatService`/`ChatService` (orkestrering), `IConversationStore` (historik), `ChatbotOptions` |
-| `tests/Chatbot.Tests` | Enhedstests af orkestreringen mod en fake `IChatClient` |
+| `src/Chatbot.Api` | Tyndt web-lag: DI-opsætning, `POST /chat`, `POST /ingest`, `GET /search`, `GET /health`, Swagger |
+| `src/Chatbot.Core` | Orkestrering (`ChatService`, `IChatToolProvider`), RAG-logik (`TextChunker`, `IngestionService`, `DocumentSearchTool`), interfaces (`IVectorStore`, `IDocumentLoader`) |
+| `src/Chatbot.Infrastructure` | Implementeringer mod eksterne systemer: `PgVectorStore` (Postgres + pgvector) |
+| `tests/Chatbot.Tests` | Enhedstests mod fakes: `FakeChatClient`, `FakeEmbeddingGenerator`, `InMemoryVectorStore` |
+| `tools/Chatbot.Eval` | Konsolværktøj der kører evalueringssættet og skriver en Markdown-rapport |
+| `data/dokumentation` | Testdokumentation (fiktiv) der indekseres af `/ingest` |
+| `docs/evaluering` | Evalueringssæt, resultater pr. kørsel og fase 2-forklaring |
 
-Systemprompt, model og historik-længde konfigureres i `Chatbot`-sektionen i
-[appsettings.json](src/Chatbot.Api/appsettings.json) — ingen kodeændring nødvendig.
+Systemprompt, model og historik-længde konfigureres i `Chatbot`-sektionen, og chunking, `TopK`, `MinScore`,
+embedding-model og databaseforbindelse i `Rag`-sektionen i [appsettings.json](src/Chatbot.Api/appsettings.json) —
+ingen kodeændring nødvendig.
 
 > **Ollama-endpointet er `127.0.0.1` og ikke `localhost`.** Kører der samtidig en Ollama i Docker,
 > lytter den på IPv6 på samme port 11434, og `localhost` kan ramme den forkerte server — med
 > `model not found` som resultat. Tjek hvem der svarer med `curl http://127.0.0.1:11434/api/tags`.
 
-Fejl i `Chatbot`-sektionen (tom systemprompt, ugyldigt endpoint, negativ historik-længde)
+Fejl i `Chatbot`- eller `Rag`-sektionen (tom systemprompt, ugyldigt endpoint, chunk-overlap større end chunk)
 stopper opstarten med en tydelig besked i stedet for at vise sig som mærkelige svar senere.
+Kan Postgres ikke nås, starter API'et alligevel — chatten virker, men søgningen fejler, og loggen siger hvorfor.
 
 ### Fejlsøgning
 

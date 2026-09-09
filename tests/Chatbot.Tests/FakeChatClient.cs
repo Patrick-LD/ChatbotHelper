@@ -14,6 +14,9 @@ internal sealed class FakeChatClient : IChatClient
     /// <summary>Prompten fra seneste kald — dét testene kigger på.</summary>
     public IReadOnlyList<ChatMessage> LastPrompt { get; private set; } = [];
 
+    /// <summary>Options fra seneste kald — her ligger de tools, modellen fik at vælge imellem.</summary>
+    public ChatOptions? LastOptions { get; private set; }
+
     public int CallCount { get; private set; }
 
     public Task<ChatResponse> GetResponseAsync(
@@ -22,6 +25,7 @@ internal sealed class FakeChatClient : IChatClient
         CancellationToken cancellationToken = default)
     {
         LastPrompt = messages.ToArray();
+        LastOptions = options;
         CallCount++;
         return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, _reply)));
     }

@@ -1,0 +1,154 @@
+{
+  // Evalueringssæt for fase 2. Spørgsmålene er skrevet, som en medarbejder ville stille dem —
+  // ikke som overskrifterne i dokumentationen. Facit refererer til data/dokumentation.
+  //
+  // expected:       nøgleord der skal være i svaret ("a|b" = a eller b)
+  // forbidden:      nøgleord der ikke må være i svaret
+  // expectedSource: kildefil botten skal have slået op ("" = den må ikke finde noget)
+  //
+  // Kør:  dotnet run --project tools/Chatbot.Eval -- docs/evaluering/evalueringssaet.json docs/evaluering/resultater/<dato>.md
+  "notes": "Baseline-sæt, 20 spørgsmål: 16 med svar i dokumentationen, 2 uden dækning, 2 småsnak/almen viden.",
+  "cases": [
+    {
+      "id": "Q01",
+      "question": "Hvordan opretter jeg en ny medarbejder?",
+      "answer": "Kun HR-administratorer kan oprette i PersonaleNet; andre sender formularen 'Ny medarbejder' senest 10 arbejdsdage før start. Trinene: Stamdata, Ansættelse, Løn, gem og send til godkendelse hos lederen.",
+      "expected": ["PersonaleNet", "HR-administrator|HR"],
+      "expectedSource": "medarbejderoprettelse-i-personalenet.md"
+    },
+    {
+      "id": "Q02",
+      "question": "Hvem har lov til at oprette medarbejdere i HR-systemet?",
+      "answer": "Kun brugere med rollen HR-administrator i PersonaleNet.",
+      "expected": ["HR-administrator"],
+      "expectedSource": "medarbejderoprettelse-i-personalenet.md"
+    },
+    {
+      "id": "Q03",
+      "question": "Hvilke oplysninger skal jeg have klar, før jeg opretter en medarbejder?",
+      "answer": "Fulde navn, CPR-nummer, privat e-mail, mobilnummer, startdato, stilling, afdeling/leder, ansættelsestype, timetal og lønramme. Uden CPR-nummer og startdato afviser systemet.",
+      "expected": ["CPR", "startdato|start-dato", "e-mail|email|mail"],
+      "expectedSource": "medarbejderoprettelse-i-personalenet.md"
+    },
+    {
+      "id": "Q04",
+      "question": "Jeg får fejlen 'CPR-nummer findes allerede' når jeg opretter en medarbejder. Hvad gør jeg?",
+      "answer": "Medarbejderen har været ansat før. Brug funktionen Genansæt på den gamle medarbejderpost.",
+      "expected": ["Genansæt|genansæt"],
+      "expectedSource": "medarbejderoprettelse-i-personalenet.md"
+    },
+    {
+      "id": "Q05",
+      "question": "Hvor mange feriedage har jeg om året?",
+      "answer": "25 feriedage plus 5 feriefridage.",
+      "expected": ["25", "5 feriefridage|fem feriefridage|feriefridage"],
+      "expectedSource": "personalehaandbog.md"
+    },
+    {
+      "id": "Q06",
+      "question": "Hvornår skal jeg melde mig syg, og til hvem?",
+      "answer": "Til nærmeste leder inden kl. 9.00 på første sygedag, ring eller Teams. Registreres bagefter i TidsPortalen.",
+      "expected": ["9", "leder"],
+      "expectedSource": "personalehaandbog.md"
+    },
+    {
+      "id": "Q07",
+      "question": "Hvor meget indbetaler firmaet til min pension?",
+      "answer": "10 % af bruttolønnen; medarbejderen bidrager selv med 5 %.",
+      "expected": ["10", "5"],
+      "expectedSource": "personalehaandbog.md"
+    },
+    {
+      "id": "Q08",
+      "question": "Hvad koster frokostordningen?",
+      "answer": "650 kr. om måneden, trækkes i lønnen.",
+      "expected": ["650"],
+      "expectedSource": "personalehaandbog.md"
+    },
+    {
+      "id": "Q09",
+      "question": "Hvor ofte skal jeg skifte min adgangskode, og hvor lang skal den være?",
+      "answer": "Mindst 14 tegn, skiftes hver 180. dag.",
+      "expected": ["14", "180"],
+      "expectedSource": "it-adgange-og-sikkerhed.md"
+    },
+    {
+      "id": "Q10",
+      "question": "Jeg har klikket på et link i en phishing-mail. Hvad skal jeg gøre?",
+      "answer": "Ring straks til IT-support på lokal 4000, også uden for åbningstid.",
+      "expected": ["4000", "IT-support|IT support|supporten"],
+      "expectedSource": "it-adgange-og-sikkerhed.md"
+    },
+    {
+      "id": "Q11",
+      "question": "Hvordan får jeg adgang til Regnskab360?",
+      "answer": "Din leder bestiller adgangen i IT-portalen under 'Bestil adgang'. Gives inden for 2 arbejdsdage.",
+      "expected": ["leder", "IT-portalen|IT portalen|Bestil adgang"],
+      "expectedSource": "it-adgange-og-sikkerhed.md"
+    },
+    {
+      "id": "Q12",
+      "question": "Hvad får jeg i kilometerpenge, når jeg kører i min egen bil?",
+      "answer": "Statens takst: 3,81 kr. pr. km i 2026 op til 20.000 km. Kørsel hjem-arbejde godtgøres ikke.",
+      "expected": ["3,81|3.81"],
+      "expectedSource": "udgifter-og-rejser.md"
+    },
+    {
+      "id": "Q13",
+      "question": "Hvor dyrt et hotel må jeg booke på en forretningsrejse i Danmark?",
+      "answer": "Maks. 1.200 kr. pr. nat i Danmark (1.600 kr. i udlandet).",
+      "expected": ["1.200|1200"],
+      "expectedSource": "udgifter-og-rejser.md"
+    },
+    {
+      "id": "Q14",
+      "question": "Hvor lang tid har jeg til at indsende et udlæg?",
+      "answer": "Senest 30 dage efter købet, i Regnskab360 med kvittering.",
+      "expected": ["30 dage|30"],
+      "expectedSource": "udgifter-og-rejser.md"
+    },
+    {
+      "id": "Q15",
+      "question": "Hvor mange dage om ugen må jeg arbejde hjemme?",
+      "answer": "Op til 2 dage om ugen uden særskilt aftale. Mere kræver skriftlig aftale med lederen.",
+      "expected": ["2 dage|to dage"],
+      "expectedSource": "hjemmearbejde-politik.md"
+    },
+    {
+      "id": "Q16",
+      "question": "Hvad er mit opsigelsesvarsel, hvis jeg selv siger op?",
+      "answer": "1 måned til udgangen af en måned (14 dage i prøvetiden).",
+      "expected": ["1 måned|en måned"],
+      "expectedSource": "fratraedelse.md"
+    },
+    {
+      "id": "Q17",
+      "question": "Hvor lang er prøvetiden for nyansatte?",
+      "answer": "3 måneder.",
+      "expected": ["3 måneder|tre måneder"],
+      "expectedSource": "onboarding-af-nye-medarbejdere.md|fratraedelse.md"
+    },
+    {
+      "id": "Q18",
+      "question": "Hvad er reglerne for firmabil?",
+      "answer": "Dokumentationen dækker ikke firmabil. Botten skal sige det ærligt og ikke blande firmakort eller kørselsgodtgørelse ind.",
+      "expected": ["ikke|Ikke"],
+      "forbidden": ["firmakort", "3,81"],
+      "expectedSource": ""
+    },
+    {
+      "id": "Q19",
+      "question": "Hvor mange dages fædreorlov giver kommunen?",
+      "answer": "Dokumentationen beskriver virksomhedens barselsordning (12 uger til den anden forælder), men intet om kommunen. Acceptabelt svar: enten ærligt 'ikke i dokumentationen' eller henvisning til virksomhedens egen ordning uden opfundne tal om kommunen.",
+      "expected": ["ikke|12 uger"],
+      "forbidden": ["kommunen giver", "kommunen tilbyder"]
+    },
+    {
+      "id": "Q20",
+      "question": "Hvad er hovedstaden i Frankrig?",
+      "answer": "Paris. Almen viden — botten behøver ikke søge, og skal ikke afvise.",
+      "expected": ["Paris"],
+      "expectedSource": ""
+    }
+  ]
+}

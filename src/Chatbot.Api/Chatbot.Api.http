@@ -3,22 +3,36 @@
 ### Sundhedstjek
 GET {{host}}/health
 
-### Første besked — svaret indeholder et conversationId
+### Genopbyg dokumentationsindekset (kør efter ændringer i data/dokumentation)
+POST {{host}}/ingest
+
+### Rå søgning — viser præcis de chunks, botten ville få at læse
+GET {{host}}/search?q=Hvor mange feriedage har jeg om året?
+
+### Første besked — svaret indeholder et conversationId og eventuelle kilder
 # @name firstTurn
 POST {{host}}/chat
 Content-Type: application/json
 
 {
-  "message": "Hej, jeg hedder Rene. Hvad kan du hjælpe med?"
+  "message": "Hvordan opretter jeg en ny medarbejder?"
 }
 
-### Opfølgning i samme samtale — botten bør huske navnet
+### Opfølgning i samme samtale — botten bør huske konteksten
 @conversationId = {{firstTurn.response.body.conversationId}}
 
 POST {{host}}/chat
 Content-Type: application/json
 
 {
-  "message": "Hvad hedder jeg?",
+  "message": "Hvem har lov til at gøre det?",
   "conversationId": "{{conversationId}}"
+}
+
+### Spørgsmål dokumentationen ikke dækker — botten bør sige det ærligt
+POST {{host}}/chat
+Content-Type: application/json
+
+{
+  "message": "Hvad er reglerne for firmabil?"
 }
