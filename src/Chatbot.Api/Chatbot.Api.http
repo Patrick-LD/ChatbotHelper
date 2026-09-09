@@ -1,0 +1,24 @@
+@host = http://localhost:5022
+
+### Sundhedstjek
+GET {{host}}/health
+
+### Første besked — svaret indeholder et conversationId
+# @name firstTurn
+POST {{host}}/chat
+Content-Type: application/json
+
+{
+  "message": "Hej, jeg hedder Rene. Hvad kan du hjælpe med?"
+}
+
+### Opfølgning i samme samtale — botten bør huske navnet
+@conversationId = {{firstTurn.response.body.conversationId}}
+
+POST {{host}}/chat
+Content-Type: application/json
+
+{
+  "message": "Hvad hedder jeg?",
+  "conversationId": "{{conversationId}}"
+}
