@@ -163,7 +163,7 @@ builder.Services.AddChatClient(_ =>
     .UseLogging();
 ```
 
-Skal vi senere til Azure OpenAI eller en anden udbyder, ændres **kun disse tre linjer**. `ChatService`,
+Skal vi senere til Azure OpenAI eller Claude, ændres **kun disse tre linjer**. `ChatService`,
 endpointet og testene rører vi ikke. Det er hele pointen: planen siger, at vi starter på
 Ollama og skifter til cloud senere — og den beslutning må ikke betyde en omskrivning.
 
