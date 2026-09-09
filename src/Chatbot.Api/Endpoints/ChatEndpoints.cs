@@ -22,7 +22,10 @@ public static class ChatEndpoints
                     new ChatTurnRequest(request.Message, request.ConversationId),
                     cancellationToken);
 
-                return Results.Ok(new ChatResponse(result.Reply, result.ConversationId));
+                return Results.Ok(new ChatResponse(
+                    result.Reply,
+                    result.ConversationId,
+                    result.Sources.Select(s => new SourceDto(s.Source, s.Heading, Math.Round(s.Score, 3))).ToList()));
             }
             catch (HttpRequestException ex)
             {
@@ -36,8 +39,8 @@ public static class ChatEndpoints
         .WithName("PostChat")
         .WithSummary("Send en besked til chatbotten")
         .WithDescription(
-            "Returnerer modellens svar og et conversationId. Send samme conversationId med i " +
-            "næste kald, for at botten husker konteksten.")
+            "Returnerer modellens svar, et conversationId og de kilder i dokumentationen, botten " +
+            "eventuelt slog op. Send samme conversationId med i næste kald, for at botten husker konteksten.")
         .Produces<ChatResponse>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
@@ -50,4 +53,7 @@ public static class ChatEndpoints
 /// <param name="ConversationId">Udelades i første kald — så oprettes en ny samtale.</param>
 public sealed record ChatRequest(string Message, string? ConversationId);
 
-public sealed record ChatResponse(string Reply, string ConversationId);
+/// <param name="Sources">Kilder botten slog op i denne tur. Tom liste, hvis den svarede uden at søge.</param>
+public sealed record ChatResponse(string Reply, string ConversationId, IReadOnlyList<SourceDto> Sources);
+
+public sealed record SourceDto(string Source, string Heading, double Score);
