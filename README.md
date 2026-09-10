@@ -9,6 +9,7 @@ vurderer selv, om et spørgsmål kræver dokumentationssøgning, et tool-kald el
 👉 **[BUILD_GUIDE.md](BUILD_GUIDE.md)** — projektplan, arkitektur, faser og tjekpunkter.
 👉 **[docs/FASE-1-FORKLARET.md](docs/FASE-1-FORKLARET.md)** — gennemgang af fase 1-koden og begrundelserne bag valgene.
 👉 **[docs/FASE-2-FORKLARET.md](docs/FASE-2-FORKLARET.md)** — RAG-kernen forklaret, inkl. evaluering og baseline.
+👉 **[docs/FASE-3-FORKLARET.md](docs/FASE-3-FORKLARET.md)** — handlings-tools og bekræftelses-flowet forklaret.
 
 ## Teknologi
 
@@ -28,7 +29,7 @@ vurderer selv, om et spørgsmål kræver dokumentationssøgning, et tool-kald el
 | GitHub-opsætning (branches, protection, CI) | ✅ verificeret |
 | Fase 1 — Fundament | ✅ verificeret mod llama3.1 |
 | Fase 2 — RAG-kernen | ✅ baseline 16/20 (80 %) |
-| Fase 3 — Statiske tools | ⬜ |
+| Fase 3 — Statiske tools | ✅ bekræftelses-flow verificeret |
 | Fase 4 — Dynamisk tool-registry + MCP | ⬜ |
 | Fase 5 — Hærdning og guidning | ⬜ |
 
@@ -39,9 +40,10 @@ vurderer selv, om et spørgsmål kræver dokumentationssøgning, et tool-kald el
 ollama pull llama3.1
 ollama pull nomic-embed-text
 
-docker compose up -d                   # Postgres + pgvector på 127.0.0.1:5432
+docker compose up -d                        # Postgres + pgvector på 127.0.0.1:5432
 dotnet test Chatbot.sln
-dotnet run --project src/Chatbot.Api   # http://localhost:5022
+dotnet run --project src/Chatbot.DummyHr    # HR-dummy ("PersonaleNet") på http://localhost:5100
+dotnet run --project src/Chatbot.Api        # http://localhost:5022
 ```
 
 Swagger UI: <http://localhost:5022/swagger>. Klar-tjek: `GET /health`.
@@ -61,7 +63,18 @@ curl -X POST http://localhost:5022/chat -H "Content-Type: application/json"   -d
 curl -X POST http://localhost:5022/chat -H "Content-Type: application/json"   -d '{"message":"Hvilke oplysninger skal jeg have klar?","conversationId":"<id fra svaret>"}'
 ```
 
-Samme flow ligger klikbart i [Chatbot.Api.http](src/Chatbot.Api/Chatbot.Api.http).
+Handlinger kræver bekræftelse: bed botten oprette en medarbejder, og svaret indeholder `pendingAction`
+med en opsummering. Svar "ja" i samme samtale for at udføre, "nej" for at annullere, eller ret oplysningerne:
+
+```bash
+curl -X POST http://localhost:5022/chat -H "Content-Type: application/json" \
+  -d '{"message":"Opret Mette Nielsen, mette@firma.dk, Konsulent i Salg, start 2026-11-01"}'
+
+curl -X POST http://localhost:5022/chat -H "Content-Type: application/json" \
+  -d '{"message":"ja","conversationId":"<id fra svaret>"}'
+```
+
+Samme flows ligger klikbart i [Chatbot.Api.http](src/Chatbot.Api/Chatbot.Api.http).
 `GET /search?q=...` viser de rå søgeresultater uden modellen — det første sted at kigge, når et svar er dårligt.
 
 ### Evaluering
@@ -78,16 +91,17 @@ dotnet run --project tools/Chatbot.Eval -- docs/evaluering/evalueringssaet.json 
 | Sti | Indhold |
 | --- | --- |
 | `src/Chatbot.Api` | Tyndt web-lag: DI-opsætning, `POST /chat`, `POST /ingest`, `GET /search`, `GET /health`, Swagger |
-| `src/Chatbot.Core` | Orkestrering (`ChatService`, `IChatToolProvider`), RAG-logik (`TextChunker`, `IngestionService`, `DocumentSearchTool`), interfaces (`IVectorStore`, `IDocumentLoader`) |
-| `src/Chatbot.Infrastructure` | Implementeringer mod eksterne systemer: `PgVectorStore` (Postgres + pgvector) |
-| `tests/Chatbot.Tests` | Enhedstests mod fakes: `FakeChatClient`, `FakeEmbeddingGenerator`, `InMemoryVectorStore` |
+| `src/Chatbot.Core` | Orkestrering (`ChatService`, `IChatToolProvider`, bekræftelses-flow), RAG (`TextChunker`, `IngestionService`, `DocumentSearchTool`), handlings-tools (`EmployeeTools`, `PendingAction`, `ConfirmationParser`), interfaces |
+| `src/Chatbot.Infrastructure` | Implementeringer mod eksterne systemer: `PgVectorStore` (Postgres + pgvector), `HttpEmployeeService` (HR-API) |
+| `src/Chatbot.DummyHr` | Dummy-HR-API i hukommelsen — "PersonaleNet" til test af handlinger |
+| `tests/Chatbot.Tests` | Enhedstests mod fakes: `FakeChatClient`, `FakeEmbeddingGenerator`, `InMemoryVectorStore`, `FakeEmployeeService` |
 | `tools/Chatbot.Eval` | Konsolværktøj der kører evalueringssættet og skriver en Markdown-rapport |
 | `data/dokumentation` | Testdokumentation (fiktiv) der indekseres af `/ingest` |
 | `docs/evaluering` | Evalueringssæt og resultater pr. kørsel |
 
-Systemprompt, model og historik-længde konfigureres i `Chatbot`-sektionen, og chunking, `TopK`, `MinScore`,
-embedding-model og databaseforbindelse i `Rag`-sektionen i [appsettings.json](src/Chatbot.Api/appsettings.json) —
-ingen kodeændring nødvendig.
+Systemprompt, model, timeout og historik-længde konfigureres i `Chatbot`-sektionen, chunking, `TopK`, `MinScore`,
+embedding-model og databaseforbindelse i `Rag`-sektionen, og HR-API'ets adresse og bekræftelsers levetid i
+`Tools`-sektionen i [appsettings.json](src/Chatbot.Api/appsettings.json) — ingen kodeændring nødvendig.
 
 > **Ollama-endpointet er `127.0.0.1` og ikke `localhost`.** Kører der samtidig en Ollama i Docker,
 > lytter den på IPv6 på samme port 11434, og `localhost` kan ramme den forkerte server — med

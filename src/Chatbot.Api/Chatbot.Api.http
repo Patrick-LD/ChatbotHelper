@@ -36,3 +36,44 @@ Content-Type: application/json
 {
   "message": "Hvad er reglerne for firmabil?"
 }
+
+### ---- Fase 3: handlinger med bekræftelse (kræver at Chatbot.DummyHr kører på :5100) ----
+
+### Manglende oplysninger — botten skal spørge, ikke oprette
+POST {{host}}/chat
+Content-Type: application/json
+
+{
+  "message": "Opret en medarbejder der hedder Lars Hansen"
+}
+
+### Fuld information — botten opsummerer, og svaret har et pendingAction
+# @name prepare
+POST {{host}}/chat
+Content-Type: application/json
+
+{
+  "message": "Opret Mette Nielsen, mette.nielsen@firma.dk, som Konsulent i afdelingen Salg med start 1. november 2026"
+}
+
+### Bekræft — handlingen udføres uden modelkald
+@actionConversation = {{prepare.response.body.conversationId}}
+
+POST {{host}}/chat
+Content-Type: application/json
+
+{
+  "message": "ja",
+  "conversationId": "{{actionConversation}}"
+}
+
+### Slå op i HR-systemet
+POST {{host}}/chat
+Content-Type: application/json
+
+{
+  "message": "Er Mette Nielsen oprettet?"
+}
+
+### HR-dummy direkte
+GET http://localhost:5100/employees

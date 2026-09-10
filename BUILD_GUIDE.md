@@ -152,23 +152,30 @@ Bruger → Chat-API (ASP.NET Core)
 **Mål:** Botten kan udføre én handling.
 
 **3.1 Test-API**
-- [ ] Lav et lille dummy-API (eller brug et testmiljø af det rigtige system) med f.eks. et "opret medarbejder"-endpoint — så kan du eksperimentere uden risiko
+- [x] Lav et lille dummy-API → `src/Chatbot.DummyHr` ("PersonaleNet" i hukommelsen på port 5100): `POST /employees` (400 ved manglende felter, 409 ved dublet-e-mail), `GET /employees?name=`, `DELETE /employees` til nulstilling. Separat projekt, fordi det er sådan rigtige tools ser ud i fase 4: eksterne systemer bag HTTP
 
 **3.2 Function calling**
-- [ ] Hardcod 1-2 tools som Semantic Kernel-funktioner (navn, beskrivelse, typede parametre)
-- [ ] Slå automatisk function calling til og verificér, at modellen kalder toolet på "opret en medarbejder der hedder Lars"
-- [ ] Test grænsetilfælde: stiller botten opklarende spørgsmål, når der mangler oplysninger (f.eks. e-mail)?
+- [x] Hardcod 1-2 tools → `EmployeeTools` med `opret_medarbejder` (skrive-tool, kræver bekræftelse) og `find_medarbejder` (læse-tool, udføres straks). Samme `IChatToolProvider` som fase 2's søgning — `ChatService` er uændret
+- [x] Automatisk function calling er slået til (`UseFunctionInvocation`), og modellen kalder toolet på "Opret Mette Nielsen, mette.nielsen@firma.dk, Konsulent i Salg, start 1. november 2026"
+- [x] Grænsetilfælde: "Opret en medarbejder der hedder Lars Hansen" → botten spørger om e-mail, afdeling, stilling og startdato og forbereder intet. Toolet validerer selv og svarer modellen "mangler: … Gæt ikke"
 
 **3.3 Bekræftelses-flow**
-- [ ] Byg et to-trins-flow: botten opsummerer handlingen ("Jeg opretter nu Lars Hansen med e-mail x — bekræft?") og udfører først ved brugerens ja
-- [ ] Håndtér afvisning: brugeren skal kunne rette oplysningerne i stedet for at starte forfra
+- [x] To-trins-flow: toolet gemmer en `PendingAction` pr. samtale og opretter *intet*; modellen viser opsummeringen; brugerens "ja" tolkes af `ConfirmationParser` (deterministisk, ikke et modelkald) og udføres af `IActionExecutor` uden at spørge modellen. Forslag udløber efter 30 min, og de slettes *før* udførelsen, så et dobbelt "ja" ikke opretter to gange
+- [x] Afvisning: "nej" annullerer med fast svar. Uklare svar ("e-mailen skal være …") går til modellen med en systemnote om det ventende forslag, så den kalder toolet igen med rettede oplysninger — verificeret: rettet e-mail endte i HR-dummy'en
 
 **3.4 Kombination af viden og handling**
-- [ ] Test det fulde flow: "Hvordan opretter jeg en medarbejder?" → botten søger i dokumentationen, forklarer, og tilbyder at udføre det
-- [ ] Udvid evalueringssættet med 5 tool-scenarier
+- [x] Fuldt flow testet: "Hvordan opretter jeg en ny medarbejder?" → søger i dokumentationen og forklarer med kilde (kalder *ikke* opret_medarbejder) → "Ja tak, opret Peter Jensen …" → forslag venter på bekræftelse. Botten tilbyder endnu ikke af sig selv at udføre handlingen — det er fase 5.3
+- [x] Evalueringssættet udvidet med 6 tool-scenarier (T01-T06). Værktøjet kan nu køre flertrins-samtaler (`turns`) og tjekke `expectedPending`, og det nulstiller HR-dummy'en før kørslen → [rapport](docs/evaluering/resultater/2026-09-10-fase-3.md)
 
-**Leverance:** Botten kan både forklare og udføre en opgave i samme samtale.
-*Bemærk: Hvis den lokale model vælger tools upålideligt, kan dette være tidspunktet at skifte til en cloud-API.*
+> **Fund under fase 3:** OllamaSharps HttpClient har en indbygget timeout på 100 s. Fire parallelle
+> samtaler mod én lokal model står i kø, og de bagerste ramte grænsen med HTTP 500. Timeouten er nu
+> konfigurerbar (`Chatbot:Ollama:TimeoutSeconds`, 300), og et udløb giver 504 med forklaring.
+> En lokal model er én kø, ikke en skalerbar tjeneste — det er også et argument i cloud-beslutningen.
+
+👉 Gennemgang af koden og begrundelserne: [docs/FASE-3-FORKLARET.md](docs/FASE-3-FORKLARET.md)
+
+**Leverance:** Botten kan både forklare og udføre en opgave i samme samtale — verificeret mod llama3.1 og HR-dummy'en.
+*Modellen vælger rigtigt mellem søg og handl i de testede scenarier; se evalueringen for tallene.*
 
 ### Fase 4 — Dynamisk tool-registry + MCP
 **Mål:** Tools uden kodeændringer.

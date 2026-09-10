@@ -11,6 +11,11 @@ using System.Text.Json;
 // findes i svaret (alternativer adskilles med |), ingen forbudte nøgleord findes, og den forventede
 // kilde optræder blandt de kilder, botten slog op. Det er en grov, automatisk vurdering — men den
 // er ens fra kørsel til kørsel, og det er det, der gør den brugbar som baseline.
+//
+// Fase 3: en case kan have "turns" (flere beskeder i samme samtale) i stedet for "question";
+// forventningerne gælder det sidste svar. "expectedPending" tjekker, om en handling venter på
+// bekræftelse efter sidste tur. HR-dummy'en nulstilles før kørslen (CHATBOT_HR_URL), så
+// oprettelser fra en tidligere kørsel ikke giver dublet-afvisninger.
 
 var setPath = args.Length > 0 ? args[0] : "docs/evaluering/evalueringssaet.json";
 var outputPath = args.Length > 1 ? args[1] : null;
@@ -26,7 +31,18 @@ var jsonOptions = new JsonSerializerOptions
 var set = JsonSerializer.Deserialize<EvalSet>(await File.ReadAllTextAsync(setPath), jsonOptions)
     ?? throw new InvalidOperationException($"Kunne ikke læse {setPath}.");
 
-using var http = new HttpClient { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromMinutes(5) };
+using var http = new HttpClient { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromMinutes(10) };
+
+var hrUrl = Environment.GetEnvironmentVariable("CHATBOT_HR_URL") ?? "http://localhost:5100";
+try
+{
+    using var reset = await http.DeleteAsync(new Uri(new Uri(hrUrl), "/employees"));
+    Console.WriteLine($"HR-dummy nulstillet ({(int)reset.StatusCode}) på {hrUrl}");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"Advarsel: kunne ikke nulstille HR-dummy på {hrUrl}: {ex.Message}");
+}
 
 Console.WriteLine($"Evaluering: {set.Cases.Count} spørgsmål mod {baseUrl}");
 Console.WriteLine();
@@ -39,22 +55,28 @@ foreach (var c in set.Cases)
     var sw = Stopwatch.StartNew();
     ChatResponse? response = null;
     string? error = null;
+    string? conversationId = null;
 
-    try
+    var turns = c.Turns is { Count: > 0 } ? c.Turns : [c.Question ?? string.Empty];
+    foreach (var turn in turns)
     {
-        using var reply = await http.PostAsJsonAsync("/chat", new { message = c.Question });
-        if (!reply.IsSuccessStatusCode)
+        try
         {
-            error = $"HTTP {(int)reply.StatusCode}: {await reply.Content.ReadAsStringAsync()}";
-        }
-        else
-        {
+            using var reply = await http.PostAsJsonAsync("/chat", new { message = turn, conversationId });
+            if (!reply.IsSuccessStatusCode)
+            {
+                error = $"HTTP {(int)reply.StatusCode}: {await reply.Content.ReadAsStringAsync()}";
+                break;
+            }
+
             response = await reply.Content.ReadFromJsonAsync<ChatResponse>(jsonOptions);
+            conversationId = response?.ConversationId;
         }
-    }
-    catch (Exception ex)
-    {
-        error = ex.Message;
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            break;
+        }
     }
 
     sw.Stop();
@@ -67,16 +89,19 @@ foreach (var c in set.Cases)
         ? true
         : c.ExpectedSource == string.Empty ? sources.Count == 0 : c.ExpectedSource.Split('|').Any(sources.Contains);
 
-    var passed = error is null && missing.Count == 0 && forbidden.Count == 0 && sourceOk;
-    results.Add(new CaseResult(c, response, error, missing, forbidden, sourceOk, passed, sw.Elapsed));
+    var pendingOk = c.ExpectedPending is null || c.ExpectedPending == (response?.PendingAction is not null);
 
-    Console.WriteLine($"{(passed ? "✅" : "❌")} {c.Id,-4} {c.Question}");
+    var passed = error is null && missing.Count == 0 && forbidden.Count == 0 && sourceOk && pendingOk;
+    results.Add(new CaseResult(c, response, error, missing, forbidden, sourceOk, pendingOk, passed, sw.Elapsed));
+
+    Console.WriteLine($"{(passed ? "✅" : "❌")} {c.Id,-4} {c.Title}");
     if (!passed)
     {
         if (error is not null) Console.WriteLine($"        fejl: {error}");
         if (missing.Count > 0) Console.WriteLine($"        mangler: {string.Join(", ", missing)}");
         if (forbidden.Count > 0) Console.WriteLine($"        forbudt: {string.Join(", ", forbidden)}");
         if (!sourceOk) Console.WriteLine($"        kilde: forventede '{c.ExpectedSource}', fik [{string.Join(", ", sources)}]");
+        if (!pendingOk) Console.WriteLine($"        ventende handling: forventede {c.ExpectedPending}, fik '{response?.PendingAction}'");
     }
 }
 
@@ -120,14 +145,14 @@ static string BuildReport(EvalSet set, List<CaseResult> results, double percent,
     sb.AppendLine();
     sb.AppendLine("> _Udfyld: chatmodel, embedding-model, ChunkSize/ChunkOverlap, TopK, MinScore, hvad der blev ændret siden sidst._");
     sb.AppendLine();
-    sb.AppendLine("| # | Spørgsmål | Resultat | Mangler | Forbudt | Kilde ok | Tid |");
-    sb.AppendLine("| --- | --- | --- | --- | --- | --- | --- |");
+    sb.AppendLine("| # | Spørgsmål | Resultat | Mangler | Forbudt | Kilde ok | Bekræft ok | Tid |");
+    sb.AppendLine("| --- | --- | --- | --- | --- | --- | --- | --- |");
     foreach (var r in results)
     {
         sb.AppendLine(
-            $"| {r.Case.Id} | {Escape(r.Case.Question)} | {(r.Passed ? "✅" : "❌")} | " +
+            $"| {r.Case.Id} | {Escape(r.Case.Title)} | {(r.Passed ? "✅" : "❌")} | " +
             $"{Escape(string.Join(", ", r.Missing))} | {Escape(string.Join(", ", r.Forbidden))} | " +
-            $"{(r.SourceOk ? "✅" : "❌")} | {r.Elapsed.TotalSeconds:0.0} s |");
+            $"{(r.SourceOk ? "✅" : "❌")} | {(r.PendingOk ? "✅" : "❌")} | {r.Elapsed.TotalSeconds:0.0} s |");
     }
 
     sb.AppendLine();
@@ -135,8 +160,14 @@ static string BuildReport(EvalSet set, List<CaseResult> results, double percent,
     sb.AppendLine();
     foreach (var r in results)
     {
-        sb.AppendLine($"### {r.Case.Id} — {r.Case.Question}");
+        sb.AppendLine($"### {r.Case.Id} — {r.Case.Title}");
         sb.AppendLine();
+        if (r.Case.Turns is { Count: > 1 })
+        {
+            sb.AppendLine("**Ture:** " + string.Join(" → ", r.Case.Turns.Select(t => "\"" + t + "\"")));
+            sb.AppendLine();
+        }
+
         sb.AppendLine($"**Facit:** {r.Case.Answer}");
         sb.AppendLine();
         if (r.Error is not null)
@@ -157,6 +188,11 @@ static string BuildReport(EvalSet set, List<CaseResult> results, double percent,
             sb.AppendLine(sources.Count == 0
                 ? "**Kilder:** ingen (botten søgte ikke, eller intet lå over MinScore)"
                 : "**Kilder:** " + string.Join("; ", sources.Select(s => $"{s.Source} › {s.Heading} ({s.Score:0.00})")));
+            if (r.Response?.PendingAction is not null)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"**Venter på bekræftelse:** {r.Response.PendingAction}");
+            }
         }
 
         sb.AppendLine();
@@ -177,13 +213,19 @@ sealed record EvalSet(string? Notes, List<EvalCase> Cases);
 /// <param name="ExpectedSource">Kildefil der skal være slået op. Tom streng = botten må ikke have fundet noget. null = ligegyldigt.</param>
 sealed record EvalCase(
     string Id,
-    string Question,
+    string? Question,
+    List<string>? Turns,
     string Answer,
     List<string>? Expected,
     List<string>? Forbidden,
-    string? ExpectedSource);
+    string? ExpectedSource,
+    bool? ExpectedPending)
+{
+    /// <summary>Overskrift i rapporten: spørgsmålet, eller første tur for flertrins-cases.</summary>
+    public string Title => Question ?? (Turns is { Count: > 0 } ? Turns[0] + (Turns.Count > 1 ? $" (+{Turns.Count - 1} ture)" : "") : Id);
+}
 
-sealed record ChatResponse(string Reply, string ConversationId, List<SourceDto> Sources);
+sealed record ChatResponse(string Reply, string ConversationId, List<SourceDto> Sources, string? PendingAction);
 
 sealed record SourceDto(string Source, string Heading, double Score);
 
@@ -194,5 +236,6 @@ sealed record CaseResult(
     List<string> Missing,
     List<string> Forbidden,
     bool SourceOk,
+    bool PendingOk,
     bool Passed,
     TimeSpan Elapsed);

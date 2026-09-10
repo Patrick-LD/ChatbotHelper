@@ -25,7 +25,17 @@ public static class ChatEndpoints
                 return Results.Ok(new ChatResponse(
                     result.Reply,
                     result.ConversationId,
-                    result.Sources.Select(s => new SourceDto(s.Source, s.Heading, Math.Round(s.Score, 3))).ToList()));
+                    result.Sources.Select(s => new SourceDto(s.Source, s.Heading, Math.Round(s.Score, 3))).ToList(),
+                    result.PendingAction));
+            }
+            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Ollama svarede ikke inden Chatbot:Ollama:TimeoutSeconds — typisk fordi modellen er
+                // langsom, eller fordi flere kald står i kø. Ikke en fejl i koden, og ikke en 500.
+                return Results.Problem(
+                    title: "Modellen svarede ikke i tide",
+                    detail: "Ollama nåede ikke at svare inden timeouten (Chatbot:Ollama:TimeoutSeconds). Prøv igen, eller hæv grænsen.",
+                    statusCode: StatusCodes.Status504GatewayTimeout);
             }
             catch (HttpRequestException ex)
             {
@@ -39,11 +49,12 @@ public static class ChatEndpoints
         .WithName("PostChat")
         .WithSummary("Send en besked til chatbotten")
         .WithDescription(
-            "Returnerer modellens svar, et conversationId og de kilder i dokumentationen, botten " +
-            "eventuelt slog op. Send samme conversationId med i næste kald, for at botten husker konteksten.")
+            "Returnerer modellens svar, et conversationId, de kilder i dokumentationen botten eventuelt slog op, " +
+            "og en eventuel handling der venter på bekræftelse. Send samme conversationId med i næste kald.")
         .Produces<ChatResponse>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
-        .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+        .ProducesProblem(StatusCodes.Status504GatewayTimeout);
 
         return app;
     }
@@ -54,6 +65,7 @@ public static class ChatEndpoints
 public sealed record ChatRequest(string Message, string? ConversationId);
 
 /// <param name="Sources">Kilder botten slog op i denne tur. Tom liste, hvis den svarede uden at søge.</param>
-public sealed record ChatResponse(string Reply, string ConversationId, IReadOnlyList<SourceDto> Sources);
+/// <param name="PendingAction">Handling der venter på brugerens bekræftelse ("ja"/"nej" i næste besked). Null hvis ingen.</param>
+public sealed record ChatResponse(string Reply, string ConversationId, IReadOnlyList<SourceDto> Sources, string? PendingAction);
 
 public sealed record SourceDto(string Source, string Heading, double Score);

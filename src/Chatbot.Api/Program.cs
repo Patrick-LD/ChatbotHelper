@@ -1,6 +1,9 @@
 using Chatbot.Api.Endpoints;
 using Chatbot.Core.Chat;
+using Chatbot.Core.Actions;
 using Chatbot.Core.Rag;
+using Chatbot.Core.Tools;
+using Chatbot.Infrastructure.Hr;
 using Chatbot.Infrastructure.Rag;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
@@ -24,6 +27,12 @@ builder.Services
     .Bind(builder.Configuration.GetSection(RagOptions.SectionName))
     .ValidateOnStart();
 
+builder.Services.AddSingleton<IValidateOptions<ToolsOptions>, ToolsOptionsValidator>();
+builder.Services
+    .AddOptions<ToolsOptions>()
+    .Bind(builder.Configuration.GetSection(ToolsOptions.SectionName))
+    .ValidateOnStart();
+
 var chatbotOptions = builder.Configuration
     .GetSection(ChatbotOptions.SectionName)
     .Get<ChatbotOptions>() ?? new ChatbotOptions();
@@ -32,18 +41,30 @@ var ragOptions = builder.Configuration
     .GetSection(RagOptions.SectionName)
     .Get<RagOptions>() ?? new RagOptions();
 
+var toolsOptions = builder.Configuration
+    .GetSection(ToolsOptions.SectionName)
+    .Get<ToolsOptions>() ?? new ToolsOptions();
+
 // LLM-adgangen ligger bag IChatClient. Skiftet til en cloud-model (fase 3+) rører
 // kun denne registrering — hverken ChatService eller endpointet ved, hvem der svarer.
 // UseFunctionInvocation gør pipelinen i stand til at udføre tool-kald: beder modellen om
 // at kalde soeg_i_dokumentation, køres metoden, og resultatet sendes tilbage til modellen.
+// Egen HttpClient til Ollama, så timeouten kan sættes: en lokal model med tool-kald kan tage over
+// 100 s (OllamaSharps standard), især når flere kald står i kø.
+HttpClient CreateOllamaHttpClient() => new()
+{
+    BaseAddress = new Uri(chatbotOptions.Ollama.Endpoint),
+    Timeout = TimeSpan.FromSeconds(chatbotOptions.Ollama.TimeoutSeconds),
+};
+
 builder.Services.AddChatClient(_ =>
-        new OllamaApiClient(new Uri(chatbotOptions.Ollama.Endpoint), chatbotOptions.Ollama.Model))
+        new OllamaApiClient(CreateOllamaHttpClient(), chatbotOptions.Ollama.Model))
     .UseFunctionInvocation()
     .UseLogging();
 
 // Embeddings går samme vej: én registrering, resten af koden kender kun IEmbeddingGenerator.
 builder.Services.AddEmbeddingGenerator(_ =>
-        new OllamaApiClient(new Uri(chatbotOptions.Ollama.Endpoint), ragOptions.Embedding.Model))
+        new OllamaApiClient(CreateOllamaHttpClient(), ragOptions.Embedding.Model))
     .UseLogging();
 
 builder.Services.AddSingleton<IConversationStore, InMemoryConversationStore>();
@@ -55,9 +76,22 @@ builder.Services.AddSingleton<IDocumentLoader, FileDocumentLoader>();
 builder.Services.AddScoped<IngestionService>();
 builder.Services.AddScoped<IDocumentSearchService, DocumentSearchService>();
 
-// Pr. request: hvad blev hentet i denne tur, og hvilke tools må modellen se.
+// Handlings-tools (fase 3): HR-API bag IEmployeeService, ventende handlinger pr. samtale.
+builder.Services.AddHttpClient<IEmployeeService, HttpEmployeeService>(client =>
+{
+    client.BaseAddress = new Uri(toolsOptions.EmployeeApi.BaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
+builder.Services.AddSingleton<IPendingActionStore, InMemoryPendingActionStore>();
+
+// Pr. request: samtalens id, hvad blev hentet i denne tur, og hvilke tools må modellen se.
+// Rækkefølgen af providers er den rækkefølge, modellen ser tools i.
+builder.Services.AddScoped<TurnContext>();
 builder.Services.AddScoped<RetrievalContext>();
 builder.Services.AddScoped<IChatToolProvider, DocumentSearchTool>();
+builder.Services.AddScoped<EmployeeTools>();
+builder.Services.AddScoped<IChatToolProvider>(sp => sp.GetRequiredService<EmployeeTools>());
+builder.Services.AddScoped<IActionExecutor>(sp => sp.GetRequiredService<EmployeeTools>());
 builder.Services.AddScoped<IChatService, ChatService>();
 
 var app = builder.Build();
@@ -66,13 +100,14 @@ var app = builder.Build();
 // Kører der flere Ollama-instanser på maskinen, er dette den hurtigste vej til at se det.
 app.Logger.LogInformation(
     "Chatbot klar. Model {Model} via {Endpoint}. Historik: {MaxHistoryMessages} beskeder. " +
-    "Embeddings: {EmbeddingModel} ({Dimensions} dim). Dokumenter: {DocumentsPath}.",
+    "Embeddings: {EmbeddingModel} ({Dimensions} dim). Dokumenter: {DocumentsPath}. HR-API: {EmployeeApi}.",
     chatbotOptions.Ollama.Model,
     chatbotOptions.Ollama.Endpoint,
     chatbotOptions.MaxHistoryMessages,
     ragOptions.Embedding.Model,
     ragOptions.Embedding.Dimensions,
-    Path.GetFullPath(ragOptions.DocumentsPath));
+    Path.GetFullPath(ragOptions.DocumentsPath),
+    toolsOptions.EmployeeApi.BaseUrl);
 
 if (app.Environment.IsDevelopment())
 {
