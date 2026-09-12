@@ -1,0 +1,30 @@
+# Vektor-databasen til fase 2: Postgres med pgvector-udvidelsen.
+# Samme database skal senere huse tool-registry (fase 4) og chathistorik (fase 5).
+#
+#   docker compose up -d        # start
+#   docker compose down         # stop (data bevares i volumen)
+#   docker compose down -v      # stop og slet data (indekset skal så genopbygges med POST /ingest)
+#
+# Porten er bundet til 127.0.0.1 med samme begrundelse som Ollama-endpointet: så den ikke
+# kan forveksles med andre containere, der lytter på alle interfaces.
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: chatbothelper-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: chatbot
+      POSTGRES_USER: chatbot
+      POSTGRES_PASSWORD: chatbot
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - chatbothelper-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatbot -d chatbot"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  chatbothelper-pgdata:
