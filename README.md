@@ -29,7 +29,7 @@ vurderer selv, om et spørgsmål kræver dokumentationssøgning, et tool-kald el
 | GitHub-opsætning (branches, protection, CI) | ✅ verificeret |
 | Fase 1 — Fundament | ✅ verificeret mod llama3.1 |
 | Fase 2 — RAG-kernen | ✅ baseline 16/20 (80 %) |
-| Fase 3 — Statiske tools | ✅ bekræftelses-flow verificeret |
+| Fase 3 — Statiske tools | ✅ 23/26 (88 %), tool-scenarier 6/6 |
 | Fase 4 — Dynamisk tool-registry + MCP | ⬜ |
 | Fase 5 — Hærdning og guidning | ⬜ |
 

@@ -195,8 +195,22 @@ HR-dummy'en før kørslen, så dubletter fra sidste kørsel ikke forstyrrer.
 | T05 | Rettelse → "ja" | Oprettet med rettede oplysninger |
 | T06 | "Hvordan opretter jeg…?" | Søger i dokumentationen, kalder *ikke* opret_medarbejder |
 
-Resultatet af kørslen står i [evaluering/resultater/2026-09-10-fase-3.md](evaluering/resultater/2026-09-10-fase-3.md).
-Se afsnittet "Analyse" der for, hvad der fejlede og hvorfor.
+**Resultat: 23 af 26 korrekte = 88 %.** Tool-scenarierne gav **6 af 6**, og fase 2-delen gav 17 af 20
+(85 %, mod 80 % i baseline). Hele rapporten med svar og analyse står i
+[evaluering/resultater/2026-09-10-fase-3.md](evaluering/resultater/2026-09-10-fase-3.md).
+
+De tre fejl ligger alle i fase 2-delen, og to af dem er nye:
+
+| Type | Antal | Hvad |
+| --- | --- | --- |
+| Modellen svarede med rå JSON | 2 | Q12, Q20: `{"type":"message","text":"…"}` i stedet for tekst, og ingen søgning |
+| Opdigtet svar ud fra irrelevante uddrag | 1 | Q19: støj med lighed op til 0,73 blev til "kommunen giver 5 feriefridage" |
+
+JSON-fejlen er en kendt llama3.1-adfærd, når den får flere tools. Den er afværget med `ReplySanitizer`,
+som pakker et sådant objekt ud, så brugeren ser teksten — men den fortæller noget vigtigt: **prisen for
+tre tools og en længere systemprompt er, at en 8B-model bliver mindre pålidelig.** Det er projektplanens
+advarsel i praksis, og det første konkrete argument for at teste en cloud-model (eller en lokal model med
+bedre tool-support som Qwen) *før* fase 4, hvor tool-antallet vokser.
 
 ### Fund under fase 3
 

@@ -119,7 +119,10 @@ public sealed class ChatService : IChatService
             tools.Count);
 
         var response = await _chatClient.GetResponseAsync(prompt, chatOptions, cancellationToken);
-        var replyText = response.Text;
+
+        // llama3.1 svarer af og til med {"type":"message","text":"…"} i stedet for tekst, når den har
+        // flere tools. Brugeren skal ikke se rå JSON (fund i fase 3-evalueringen, Q12/Q20).
+        var replyText = ReplySanitizer.Unwrap(response.Text);
 
         // Kun brugerens spørgsmål og det endelige svar gemmes — ikke tool-kald og tool-resultater.
         await _conversations.AppendAsync(

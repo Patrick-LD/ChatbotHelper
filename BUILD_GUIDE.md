@@ -175,7 +175,9 @@ Bruger → Chat-API (ASP.NET Core)
 👉 Gennemgang af koden og begrundelserne: [docs/FASE-3-FORKLARET.md](docs/FASE-3-FORKLARET.md)
 
 **Leverance:** Botten kan både forklare og udføre en opgave i samme samtale — verificeret mod llama3.1 og HR-dummy'en.
-*Modellen vælger rigtigt mellem søg og handl i de testede scenarier; se evalueringen for tallene.*
+**Evaluering: 23/26 = 88 %** (tool-scenarier 6/6, fase 2-delen 17/20). De tre fejl er alle i RAG-delen; to af dem er
+llama3.1, der svarer med et rå JSON-objekt, når den har tre tools — afværget med `ReplySanitizer`, men det er det
+første konkrete tegn på, at en lokal 8B-model bliver upålidelig med flere tools. Test med cloud-model før fase 4.
 
 ### Fase 4 — Dynamisk tool-registry + MCP
 **Mål:** Tools uden kodeændringer.
