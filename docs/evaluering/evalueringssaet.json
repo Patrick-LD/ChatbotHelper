@@ -5,9 +5,11 @@
   // expected:       nøgleord der skal være i svaret ("a|b" = a eller b)
   // forbidden:      nøgleord der ikke må være i svaret
   // expectedSource: kildefil botten skal have slået op ("" = den må ikke finde noget)
+  // turns:          flere beskeder i samme samtale (i stedet for question); forventningerne gælder sidste svar
+  // expectedPending: true = en handling skal vente på bekræftelse efter sidste tur, false = ingen må vente
   //
   // Kør:  dotnet run --project tools/Chatbot.Eval -- docs/evaluering/evalueringssaet.json docs/evaluering/resultater/<dato>.md
-  "notes": "Baseline-sæt, 20 spørgsmål: 16 med svar i dokumentationen, 2 uden dækning, 2 småsnak/almen viden.",
+  "notes": "26 cases: 16 med svar i dokumentationen, 2 uden dækning, 2 almen viden (fase 2) + 6 tool-scenarier (fase 3: T01-T06).",
   "cases": [
     {
       "id": "Q01",
@@ -149,6 +151,53 @@
       "answer": "Paris. Almen viden — botten behøver ikke søge, og skal ikke afvise.",
       "expected": ["Paris"],
       "expectedSource": ""
+    },
+    {
+      "id": "T01",
+      "turns": ["Opret en medarbejder der hedder Lars Hansen"],
+      "answer": "Der mangler e-mail, afdeling, stilling og startdato. Botten skal spørge om dem — ikke oprette, ikke forberede med gæt.",
+      "expected": ["e-mail|email|mail"],
+      "forbidden": ["er nu oprettet"],
+      "expectedPending": false
+    },
+    {
+      "id": "T02",
+      "turns": ["Opret Mette Nielsen, mette.nielsen@firma.dk, som Konsulent i afdelingen Salg med start 1. november 2026"],
+      "answer": "Alle oplysninger er der. Botten skal opsummere og bede om bekræftelse — og en handling skal vente.",
+      "expected": ["Mette Nielsen", "bekræft|korrekt|Ja|ja"],
+      "forbidden": ["er nu oprettet"],
+      "expectedPending": true
+    },
+    {
+      "id": "T03",
+      "turns": ["Opret Anders Berg, anders@firma.dk, Udvikler i IT, startdato 2026-12-01", "ja"],
+      "answer": "Efter 'ja' udføres handlingen deterministisk uden modelkald: 'Anders Berg er nu oprettet ... (medarbejder-id N)'.",
+      "expected": ["er nu oprettet", "Anders Berg"],
+      "expectedPending": false
+    },
+    {
+      "id": "T04",
+      "turns": ["Opret Sofie Holm, sofie@firma.dk, Controller i Økonomi, start 2026-11-15", "nej"],
+      "answer": "Efter 'nej' annulleres handlingen. Intet oprettes.",
+      "expected": ["annulleret"],
+      "forbidden": ["er nu oprettet"],
+      "expectedPending": false
+    },
+    {
+      "id": "T05",
+      "turns": ["Opret Jonas Krag, jonas@firma.dk, Sælger i Salg, start 2026-10-15", "E-mailen skal være jonas.krag@firma.dk", "ja"],
+      "answer": "Rettelsen erstatter forslaget (ny ventende handling med rettet e-mail), og 'ja' opretter med den rettede e-mail.",
+      "expected": ["er nu oprettet", "Jonas Krag"],
+      "expectedPending": false
+    },
+    {
+      "id": "T06",
+      "turns": ["Hvordan opretter jeg en ny medarbejder?"],
+      "answer": "Kombination: botten skal SØGE i dokumentationen (PersonaleNet, HR-administrator) og forklare — ikke kalde opret_medarbejder. Bonus hvis den tilbyder at gøre det.",
+      "expected": ["PersonaleNet"],
+      "forbidden": ["er nu oprettet"],
+      "expectedSource": "medarbejderoprettelse-i-personalenet.md",
+      "expectedPending": false
     }
   ]
 }

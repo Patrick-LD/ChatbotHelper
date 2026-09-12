@@ -46,4 +46,11 @@ public sealed class OllamaOptions
     /// <summary>Chatmodel. Skal understøtte function calling af hensyn til fase 3.</summary>
     [Required(AllowEmptyStrings = false, ErrorMessage = "Chatbot:Ollama:Model mangler — f.eks. llama3.1.")]
     public string Model { get; set; } = "llama3.1";
+
+    /// <summary>
+    /// Hvor længe ét kald til Ollama må tage. OllamaSharps standard er 100 s, hvilket er for lidt,
+    /// når en lokal model både skal vælge tool, læse uddrag og svare — eller når flere kald står i kø.
+    /// </summary>
+    [Range(10, 3600)]
+    public int TimeoutSeconds { get; set; } = 300;
 }
