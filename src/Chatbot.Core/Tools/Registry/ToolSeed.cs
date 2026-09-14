@@ -93,10 +93,10 @@ public static class ToolSeed
                       "type": "object",
                       "properties": {
                         "fuldeNavn": { "type": "string", "description": "Medarbejderens fulde navn, f.eks. \"Lars Hansen\"." },
-                        "email":     { "type": "string", "description": "Medarbejderens e-mailadresse." },
+                        "email":     { "type": "string", "format": "email", "description": "Medarbejderens e-mailadresse." },
                         "afdeling":  { "type": "string", "description": "Afdelingen medarbejderen skal ansættes i, f.eks. \"Salg\"." },
                         "stilling":  { "type": "string", "description": "Stillingsbetegnelse, f.eks. \"Konsulent\"." },
-                        "startdato": { "type": "string", "description": "Første arbejdsdag som yyyy-MM-dd, f.eks. \"2026-10-01\"." }
+                        "startdato": { "type": "string", "format": "date", "description": "Første arbejdsdag som yyyy-MM-dd, f.eks. \"2026-10-01\"." }
                       },
                       "required": ["fuldeNavn", "email", "afdeling", "stilling", "startdato"]
                     }

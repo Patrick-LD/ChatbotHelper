@@ -1,6 +1,7 @@
 using Chatbot.Core.Actions;
 using Chatbot.Core.Chat;
 using Chatbot.Core.Rag;
+using Chatbot.Core.Security;
 using Chatbot.Core.Tools;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -12,6 +13,9 @@ public class ChatServiceTests
 {
     private const string SystemPrompt = "Du er en testassistent.";
 
+    private static readonly CurrentUser Hanne = new("hanne.hr", "Hanne HR", ["medarbejder", "HR"]);
+    private static readonly CurrentUser Anna = new("anna.medarbejder", "Anna", ["medarbejder"]);
+
     private static ChatService CreateService(
         FakeChatClient client,
         int maxHistoryMessages = 20,
@@ -21,7 +25,9 @@ public class ChatServiceTests
         IPendingActionStore? pending = null,
         IEnumerable<IActionExecutor>? executors = null,
         int pendingTimeoutMinutes = 30,
-        TurnContext? turn = null)
+        TurnContext? turn = null,
+        CurrentUser? user = null,
+        IAuditLog? audit = null)
         => new(
             client,
             store ?? new InMemoryConversationStore(),
@@ -30,53 +36,15 @@ public class ChatServiceTests
             pending ?? new InMemoryPendingActionStore(),
             retrieved ?? new RetrievalContext(),
             turn ?? new TurnContext(),
+            user ?? Hanne,
+            audit ?? new InMemoryAuditLog(),
             Options.Create(new ChatbotOptions
             {
                 SystemPrompt = SystemPrompt,
                 MaxHistoryMessages = maxHistoryMessages,
             }),
-            // Dubletter og store bogstaver med vilje: konfigurationsbinding lægger til standard-arrayet, og det må ikke smitte af.
-            Options.Create(new ToolsOptions { PendingActionTimeoutMinutes = pendingTimeoutMinutes, DefaultRoles = ["medarbejder", "Medarbejder", " "] }),
+            Options.Create(new ToolsOptions { PendingActionTimeoutMinutes = pendingTimeoutMinutes }),
             NullLogger<ChatService>.Instance);
-
-    // ---- Roller (fase 4.2) ----
-
-    [Fact]
-    public async Task SendAsync_saetter_turens_roller_fra_request_normaliseret()
-    {
-        var turn = new TurnContext();
-        var service = CreateService(new FakeChatClient(), turn: turn);
-
-        await service.SendAsync(new ChatTurnRequest("Hej", Roles: [" HR ", "medarbejder", "hr"]));
-
-        Assert.Equal(["hr", "medarbejder"], turn.Roles);
-    }
-
-    [Fact]
-    public async Task SendAsync_uden_roller_bruger_standardrollerne()
-    {
-        var turn = new TurnContext();
-        var service = CreateService(new FakeChatClient(), turn: turn);
-
-        await service.SendAsync(new ChatTurnRequest("Hej"));
-
-        Assert.Equal(["medarbejder"], turn.Roles);
-    }
-
-    [Fact]
-    public async Task SendAsync_ja_til_handling_uden_executor_kasserer_forslaget_og_siger_det()
-    {
-        var client = new FakeChatClient();
-        var pending = new InMemoryPendingActionStore();
-        await pending.SetAsync("c1", Pending());
-        var service = CreateService(client, pending: pending, executors: [new StubExecutor("et_andet_tool")]);
-
-        var result = await service.SendAsync(new ChatTurnRequest("ja", "c1"));
-
-        Assert.Equal(0, client.CallCount);
-        Assert.Contains("findes ikke længere", result.Reply);
-        Assert.Null(await pending.GetAsync("c1"));
-    }
 
     [Fact]
     public async Task SendAsync_sender_systemprompt_foerst()
@@ -192,7 +160,7 @@ public class ChatServiceTests
     }
 
     [Fact]
-    public async Task SendAsync_gemmer_kun_spoergsmaal_og_svar_i_historikken()
+    public async Task SendAsync_gemmer_kun_spoergsmaal_og_svar_i_historikken_med_brugeren_som_ejer()
     {
         var store = new InMemoryConversationStore();
         var service = CreateService(new FakeChatClient("Svar"), store: store);
@@ -203,6 +171,49 @@ public class ChatServiceTests
         Assert.Equal(2, history.Count);
         Assert.Equal(ChatRole.User, history[0].Role);
         Assert.Equal(ChatRole.Assistant, history[1].Role);
+        Assert.Equal("hanne.hr", await store.GetOwnerAsync(result.ConversationId));
+    }
+
+    // ---- Bruger, roller og ejerskab (fase 4.2 / 5.1) ----
+
+    [Fact]
+    public async Task SendAsync_saetter_bruger_og_normaliserede_roller_paa_turen()
+    {
+        var turn = new TurnContext();
+        var service = CreateService(new FakeChatClient(), turn: turn);
+
+        await service.SendAsync(new ChatTurnRequest("Hej"));
+
+        Assert.Equal("hanne.hr", turn.UserId);
+        Assert.Equal(["medarbejder", "hr"], turn.Roles);
+    }
+
+    [Fact]
+    public async Task SendAsync_afviser_anonym_bruger_uden_modelkald()
+    {
+        var client = new FakeChatClient();
+        var service = CreateService(client, user: CurrentUser.Anonymous);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.SendAsync(new ChatTurnRequest("Hej")));
+        Assert.Equal(0, client.CallCount);
+    }
+
+    [Fact]
+    public async Task SendAsync_afviser_en_anden_brugers_samtale()
+    {
+        var store = new InMemoryConversationStore();
+        var pending = new InMemoryPendingActionStore();
+        var client = new FakeChatClient();
+        var hanne = CreateService(client, store: store, pending: pending, user: Hanne);
+        var anna = CreateService(client, store: store, pending: pending, user: Anna, executors: [new StubExecutor("test_tool")]);
+
+        var conversationId = (await hanne.SendAsync(new ChatTurnRequest("Hej"))).ConversationId;
+        await pending.SetAsync(conversationId, Pending());
+
+        // Anna kan hverken læse Hannes samtale eller sige "ja" til hendes ventende handling.
+        await Assert.ThrowsAsync<ConversationOwnershipException>(() => anna.SendAsync(new ChatTurnRequest("ja", conversationId)));
+        Assert.NotNull(await pending.GetAsync(conversationId));
+        Assert.Equal(1, client.CallCount);
     }
 
     // ---- Bekræftelses-flow (fase 3.3) ----
@@ -229,13 +240,14 @@ public class ChatServiceTests
     }
 
     [Fact]
-    public async Task SendAsync_med_ventende_handling_og_nej_annullerer_uden_modelkald()
+    public async Task SendAsync_med_ventende_handling_og_nej_annullerer_uden_modelkald_og_skriver_audit()
     {
         var client = new FakeChatClient();
         var pending = new InMemoryPendingActionStore();
         await pending.SetAsync("c1", Pending());
         var executor = new StubExecutor("test_tool");
-        var service = CreateService(client, pending: pending, executors: [executor]);
+        var audit = new InMemoryAuditLog();
+        var service = CreateService(client, pending: pending, executors: [executor], audit: audit);
 
         var result = await service.SendAsync(new ChatTurnRequest("nej", "c1"));
 
@@ -243,6 +255,12 @@ public class ChatServiceTests
         Assert.Null(executor.ExecutedWith);
         Assert.Contains("annulleret", result.Reply);
         Assert.Null(await pending.GetAsync("c1"));
+
+        var entry = Assert.Single(audit.Entries);
+        Assert.Equal(AuditKind.Cancelled, entry.Kind);
+        Assert.Equal("hanne.hr", entry.UserId);
+        Assert.Equal("test_tool", entry.ToolName);
+        Assert.Equal("c1", entry.ConversationId);
     }
 
     [Fact]
@@ -263,19 +281,21 @@ public class ChatServiceTests
     }
 
     [Fact]
-    public async Task SendAsync_ja_efter_udloebet_handling_udfoerer_ikke()
+    public async Task SendAsync_ja_efter_udloebet_handling_udfoerer_ikke_og_skriver_audit()
     {
         var client = new FakeChatClient();
         var pending = new InMemoryPendingActionStore();
         await pending.SetAsync("c1", Pending(DateTimeOffset.UtcNow.AddMinutes(-31)));
         var executor = new StubExecutor("test_tool");
-        var service = CreateService(client, pending: pending, executors: [executor], pendingTimeoutMinutes: 30);
+        var audit = new InMemoryAuditLog();
+        var service = CreateService(client, pending: pending, executors: [executor], pendingTimeoutMinutes: 30, audit: audit);
 
         await service.SendAsync(new ChatTurnRequest("ja", "c1"));
 
         Assert.Null(executor.ExecutedWith);
         Assert.Equal(1, client.CallCount);
         Assert.Null(await pending.GetAsync("c1"));
+        Assert.Equal(AuditKind.Expired, Assert.Single(audit.Entries).Kind);
     }
 
     [Fact]
@@ -287,6 +307,21 @@ public class ChatServiceTests
         await service.SendAsync(new ChatTurnRequest("ja", "c1"));
 
         Assert.Equal(1, client.CallCount);
+    }
+
+    [Fact]
+    public async Task SendAsync_ja_til_handling_uden_executor_kasserer_forslaget_og_siger_det()
+    {
+        var client = new FakeChatClient();
+        var pending = new InMemoryPendingActionStore();
+        await pending.SetAsync("c1", Pending());
+        var service = CreateService(client, pending: pending, executors: [new StubExecutor("et_andet_tool")]);
+
+        var result = await service.SendAsync(new ChatTurnRequest("ja", "c1"));
+
+        Assert.Equal(0, client.CallCount);
+        Assert.Contains("findes ikke længere", result.Reply);
+        Assert.Null(await pending.GetAsync("c1"));
     }
 
     private static DocumentChunk Chunk(string source, string heading, int index)

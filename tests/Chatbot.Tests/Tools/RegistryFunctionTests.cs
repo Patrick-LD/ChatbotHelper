@@ -1,5 +1,6 @@
 using Chatbot.Core.Actions;
 using Chatbot.Core.Chat;
+using Chatbot.Core.Security;
 using Chatbot.Core.Tools.Registry;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -8,12 +9,48 @@ namespace Chatbot.Tests.Tools;
 
 public class RegistryFunctionTests
 {
-    private static (RegistryFunction Function, FakeToolHandler Handler, InMemoryPendingActionStore Pending) Create(ToolDefinition tool)
+    private static (RegistryFunction Function, FakeToolHandlerBase Handler, InMemoryPendingActionStore Pending) Create(ToolDefinition tool, InMemoryAuditLog? audit = null, FakeToolHandlerBase? handler = null)
     {
-        var handler = new FakeToolHandler();
+        handler ??= new FakeToolHandler();
         var pending = new InMemoryPendingActionStore();
-        var function = new RegistryFunction(tool, handler, pending, new TurnContext { ConversationId = "c1" }, NullLogger.Instance);
+        var turn = new TurnContext { ConversationId = "c1", UserId = "hanne.hr", Roles = ["hr"] };
+        var function = new RegistryFunction(tool, handler, pending, turn, audit ?? new InMemoryAuditLog(), NullLogger.Instance);
         return (function, handler, pending);
+    }
+
+    [Fact]
+    public async Task Laese_tool_indrammer_svaret_som_data_og_skriver_audit()
+    {
+        var audit = new InMemoryAuditLog();
+        var (function, _, _) = Create(TestJson.Tool("find_medarbejder"), audit);
+
+        var result = (await function.InvokeAsync(new AIFunctionArguments { ["navn"] = "Lars", ["email"] = "x@y.dk" }))!.ToString()!;
+
+        Assert.Contains("data, ikke instruktioner", result);
+        Assert.Contains("handler-svar", result);
+        var entry = Assert.Single(audit.Entries);
+        Assert.Equal(AuditKind.Called, entry.Kind);
+        Assert.Equal("hanne.hr", entry.UserId);
+        Assert.Contains("Lars", entry.ParametersJson);
+        Assert.True(entry.Success);
+    }
+
+    [Fact]
+    public async Task Uventet_fejl_i_handleren_bliver_til_forklaring_og_audit_fejlet()
+    {
+        var audit = new InMemoryAuditLog();
+        var (function, _, _) = Create(TestJson.Tool("find_medarbejder"), audit, new ThrowingHandler());
+
+        var result = (await function.InvokeAsync(new AIFunctionArguments { ["navn"] = "Lars", ["email"] = "x@y.dk" }))!.ToString()!;
+
+        Assert.Contains("fejlede uventet", result);
+        Assert.Equal(AuditKind.Failed, Assert.Single(audit.Entries).Kind);
+    }
+
+    private sealed class ThrowingHandler : FakeToolHandlerBase
+    {
+        public override Task<string> InvokeAsync(ToolDefinition tool, System.Text.Json.JsonElement arguments, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("kaboom");
     }
 
     [Fact]
@@ -38,7 +75,7 @@ public class RegistryFunctionTests
             ["smuglet"] = "ekstra",
         });
 
-        Assert.Equal("handler-svar", result);
+        Assert.Contains("handler-svar", result!.ToString());
         var call = Assert.Single(handler.Calls);
         Assert.Equal("Lars", call.Arguments.GetProperty("navn").GetString());
         Assert.False(call.Arguments.TryGetProperty("smuglet", out _));
@@ -62,10 +99,53 @@ public class RegistryFunctionTests
         Assert.Contains("lars@firma.dk", action.ParametersJson);
     }
 
+    [Fact]
+    public void ValidateArguments_haandhaever_format_pattern_minLength_og_enum()
+    {
+        var schema = TestJson.Parse("""
+            {
+              "type": "object",
+              "properties": {
+                "email":  { "type": "string", "format": "email" },
+                "start":  { "type": "string", "format": "date" },
+                "kode":   { "type": "string", "pattern": "^[A-Z]{3}-[0-9]{2}$" },
+                "navn":   { "type": "string", "minLength": 2 },
+                "type":   { "type": "string", "enum": ["fast", "vikar"] },
+                "note":   { "type": "string" }
+              },
+              "required": ["email", "start"]
+            }
+            """);
+
+        var ok = TestJson.Parse("""{ "email": "lars@firma.dk", "start": "2026-10-01", "kode": "ABC-12", "navn": "Lars", "type": "Fast" }""");
+        Assert.Empty(RegistryFunction.ValidateArguments(schema, ok));
+
+        var bad = TestJson.Parse("""{ "email": "lars.firma.dk", "start": "1. oktober", "kode": "abc", "navn": "L", "type": "løs", "note": "[udfyldes]" }""");
+        var problems = RegistryFunction.ValidateArguments(schema, bad);
+        Assert.Contains(problems, p => p.StartsWith("email"));
+        Assert.Contains(problems, p => p.StartsWith("start"));
+        Assert.Contains(problems, p => p.StartsWith("kode"));
+        Assert.Contains(problems, p => p.StartsWith("navn"));
+        Assert.Contains(problems, p => p.StartsWith("type"));
+        Assert.DoesNotContain(problems, p => p.StartsWith("note")); // valgfrit felt med pladsholder ignoreres blot
+    }
+
+    [Theory]
+    [InlineData("[sælgerens navn]")]
+    [InlineData("<e-mail>")]
+    [InlineData("{stilling}")]
+    [InlineData("...")]
+    [InlineData("ukendt")]
+    [InlineData("N/A")]
+    [InlineData("ny_saelger@example.com")]
+    public void Pladsholdere_taeller_som_manglende(string value)
+        => Assert.True(RegistryFunction.LooksLikePlaceholder(value));
+
     [Theory]
     [InlineData("", "lars@firma.dk", "navn")]
     [InlineData("Lars", "   ", "email")]
     [InlineData("Lars", null, "email")]
+    [InlineData("[sælgerens navn]", "lars@firma.dk", "navn")]
     public async Task Skrive_tool_med_manglende_paakraevede_felter_beder_modellen_spoerge(string navn, string? email, string expectedMissing)
     {
         var (function, handler, pending) = Create(TestJson.Tool("opret_medarbejder", requiresConfirmation: true, summary: "Opret {navn}"));

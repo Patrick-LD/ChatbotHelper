@@ -73,7 +73,7 @@ internal sealed class FakeToolRegistry : IToolRegistry
 }
 
 /// <summary>Registrerer kald og svarer med fast tekst — står i stedet for HTTP/MCP/interne handlers.</summary>
-internal sealed class FakeToolHandler(ToolHandlerType type = ToolHandlerType.Http, string reply = "handler-svar") : IToolHandler
+internal class FakeToolHandlerBase(ToolHandlerType type = ToolHandlerType.Http, string reply = "handler-svar") : IToolHandler
 {
     public ToolHandlerType HandlerType => type;
 
@@ -81,12 +81,15 @@ internal sealed class FakeToolHandler(ToolHandlerType type = ToolHandlerType.Htt
 
     public IReadOnlyList<string> Validate(JsonElement handlerConfig) => [];
 
-    public Task<string> InvokeAsync(ToolDefinition tool, JsonElement arguments, CancellationToken cancellationToken = default)
+    public virtual Task<string> InvokeAsync(ToolDefinition tool, JsonElement arguments, CancellationToken cancellationToken = default)
     {
         Calls.Add((tool.Name, arguments.Clone()));
         return Task.FromResult(reply);
     }
 }
+
+internal sealed class FakeToolHandler(ToolHandlerType type = ToolHandlerType.Http, string reply = "handler-svar")
+    : FakeToolHandlerBase(type, reply);
 
 internal static class TestJson
 {

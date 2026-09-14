@@ -1,5 +1,6 @@
 using Chatbot.Core.Actions;
 using Chatbot.Core.Rag;
+using Chatbot.Core.Security;
 using Chatbot.Core.Tools;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -17,9 +18,10 @@ public sealed class ChatService : IChatService
     private readonly IPendingActionStore _pending;
     private readonly RetrievalContext _retrieved;
     private readonly TurnContext _turn;
+    private readonly CurrentUser _user;
+    private readonly IAuditLog _audit;
     private readonly ChatbotOptions _options;
     private readonly TimeSpan _pendingTimeout;
-    private readonly IReadOnlyList<string> _defaultRoles;
     private readonly ILogger<ChatService> _logger;
 
     public ChatService(
@@ -30,6 +32,8 @@ public sealed class ChatService : IChatService
         IPendingActionStore pending,
         RetrievalContext retrieved,
         TurnContext turn,
+        CurrentUser user,
+        IAuditLog audit,
         IOptions<ChatbotOptions> options,
         IOptions<ToolsOptions> toolsOptions,
         ILogger<ChatService> logger)
@@ -41,11 +45,10 @@ public sealed class ChatService : IChatService
         _pending = pending;
         _retrieved = retrieved;
         _turn = turn;
+        _user = user;
+        _audit = audit;
         _options = options.Value;
         _pendingTimeout = TimeSpan.FromMinutes(toolsOptions.Value.PendingActionTimeoutMinutes);
-        // Distinct, fordi konfigurationsbinding LÆGGER TIL et array med standardværdier i stedet for at erstatte det:
-        // ["medarbejder","hr"] i koden + det samme i appsettings gav [medarbejder, hr, medarbejder, hr].
-        _defaultRoles = NormalizeRoles(toolsOptions.Value.DefaultRoles);
         _logger = logger;
     }
 
@@ -56,16 +59,27 @@ public sealed class ChatService : IChatService
             throw new ArgumentException("Beskeden må ikke være tom.", nameof(request));
         }
 
+        if (!_user.IsAuthenticated)
+        {
+            throw new UnauthorizedAccessException("Chatten kræver en autentificeret bruger.");
+        }
+
         var conversationId = string.IsNullOrWhiteSpace(request.ConversationId)
             ? Guid.NewGuid().ToString("n")
             : request.ConversationId;
 
-        _turn.ConversationId = conversationId;
+        // En samtale tilhører den, der startede den. Ellers kunne én bruger sende "ja" til en anden
+        // brugers ventende handling — eller læse dens historik (fase 5.1).
+        var owner = await _conversations.GetOwnerAsync(conversationId, cancellationToken);
+        if (owner is not null && owner != _user.UserId)
+        {
+            _logger.LogWarning("Bruger {UserId} forsøgte at fortsætte samtale {ConversationId}, der tilhører {Owner}.", _user.UserId, conversationId, owner);
+            throw new ConversationOwnershipException(conversationId);
+        }
 
-        // Rollerne afgør, hvilke tools modellen overhovedet får at se (fase 4.2). Indtil fase 5.1
-        // kobler rigtig autentificering på, er de en påstand fra kaldet — eller standardrollerne.
-        var requestedRoles = request.Roles is null ? [] : NormalizeRoles(request.Roles);
-        _turn.Roles = requestedRoles.Count > 0 ? requestedRoles : _defaultRoles;
+        _turn.ConversationId = conversationId;
+        _turn.UserId = _user.UserId;
+        _turn.Roles = _user.Roles;
 
         var userMessage = new ChatMessage(ChatRole.User, request.Message);
 
@@ -80,7 +94,7 @@ public sealed class ChatService : IChatService
                 case ConfirmationIntent.Confirm:
                 {
                     var reply = await ExecuteAsync(conversationId, pending, cancellationToken);
-                    await _conversations.AppendAsync(conversationId, [userMessage, new ChatMessage(ChatRole.Assistant, reply)], cancellationToken);
+                    await _conversations.AppendAsync(conversationId, _user.UserId, [userMessage, new ChatMessage(ChatRole.Assistant, reply)], cancellationToken);
                     return new ChatTurnResult(reply, conversationId, []);
                 }
 
@@ -88,21 +102,22 @@ public sealed class ChatService : IChatService
                 {
                     await _pending.ClearAsync(conversationId, cancellationToken);
                     _logger.LogInformation("Handling annulleret af brugeren i samtale {ConversationId}: {Summary}", conversationId, pending.Summary);
+                    await AuditAsync(pending, AuditKind.Cancelled, "Annulleret af brugeren.", cancellationToken);
                     const string reply = "Okay, jeg har annulleret handlingen. Intet er oprettet. Sig til, hvis du vil have mig til at gøre noget andet.";
-                    await _conversations.AppendAsync(conversationId, [userMessage, new ChatMessage(ChatRole.Assistant, reply)], cancellationToken);
+                    await _conversations.AppendAsync(conversationId, _user.UserId, [userMessage, new ChatMessage(ChatRole.Assistant, reply)], cancellationToken);
                     return new ChatTurnResult(reply, conversationId, []);
                 }
             }
         }
 
-        var history = await _conversations.GetAsync(conversationId, cancellationToken);
+        var history = await _conversations.GetAsync(conversationId, _options.MaxHistoryMessages, cancellationToken);
 
         // Systemprompten gemmes ikke i historikken — så slår en rettelse i konfigurationen
         // igennem med det samme, også i igangværende samtaler.
         List<ChatMessage> prompt =
         [
             new ChatMessage(ChatRole.System, _options.SystemPrompt),
-            .. Trim(history),
+            .. history,
         ];
 
         if (pending is not null)
@@ -128,21 +143,23 @@ public sealed class ChatService : IChatService
         var chatOptions = tools.Count > 0 ? new ChatOptions { Tools = tools } : null;
 
         _logger.LogInformation(
-            "Kalder model for samtale {ConversationId} med {MessageCount} beskeder og {ToolCount} tools (roller: {Roles}).",
+            "Kalder model for samtale {ConversationId} (bruger {UserId}, roller: {Roles}) med {MessageCount} beskeder og {ToolCount} tools.",
             conversationId,
+            _user.UserId,
+            string.Join(", ", _user.Roles),
             prompt.Count,
-            tools.Count,
-            string.Join(", ", _turn.Roles));
+            tools.Count);
 
         var response = await _chatClient.GetResponseAsync(prompt, chatOptions, cancellationToken);
 
         // llama3.1 svarer af og til med {"type":"message","text":"…"} i stedet for tekst, når den har
-        // flere tools. Brugeren skal ikke se rå JSON (fund i fase 3-evalueringen, Q12/Q20).
+        // flere tools — eller skriver et tool-kald som JSON, når rollen ikke har toolet (fase 4).
         var replyText = ReplySanitizer.Unwrap(response.Text);
 
         // Kun brugerens spørgsmål og det endelige svar gemmes — ikke tool-kald og tool-resultater.
         await _conversations.AppendAsync(
             conversationId,
+            _user.UserId,
             [userMessage, new ChatMessage(ChatRole.Assistant, replyText)],
             cancellationToken);
 
@@ -170,6 +187,7 @@ public sealed class ChatService : IChatService
         {
             _logger.LogInformation("Ventende handling udløbet i samtale {ConversationId}: {Summary}", conversationId, pending.Summary);
             await _pending.ClearAsync(conversationId, cancellationToken);
+            await AuditAsync(pending, AuditKind.Expired, $"Udløbet efter {_pendingTimeout.TotalMinutes:0} min uden bekræftelse.", cancellationToken);
             return null;
         }
 
@@ -195,6 +213,7 @@ public sealed class ChatService : IChatService
         {
             // Toolet er fjernet fra registret, siden forslaget blev lavet. Ikke en fejl i koden — sig det.
             _logger.LogWarning("Ingen executor for toolet '{Tool}' i samtale {ConversationId}. Handlingen kasseres.", pending.ToolName, conversationId);
+            await AuditAsync(pending, AuditKind.Denied, "Toolet findes ikke længere.", cancellationToken);
             return $"Handlingen blev ikke udført: toolet '{pending.ToolName}' findes ikke længere. Intet er ændret.";
         }
 
@@ -203,19 +222,17 @@ public sealed class ChatService : IChatService
         return await executor.ExecuteAsync(pending, cancellationToken);
     }
 
-    /// <summary>Små bogstaver, trimmet, uden tomme og uden dubletter — så "HR" og "hr" er samme rolle.</summary>
-    private static List<string> NormalizeRoles(IEnumerable<string> roles)
-        => roles.Select(r => r.Trim().ToLowerInvariant()).Where(r => r.Length > 0).Distinct().ToList();
-
-    /// <summary>Beholder kun de seneste beskeder, så prompten ikke vokser i det uendelige.</summary>
-    private IEnumerable<ChatMessage> Trim(IReadOnlyList<ChatMessage> history)
+    private async Task AuditAsync(PendingAction pending, string kind, string result, CancellationToken cancellationToken)
     {
-        var max = _options.MaxHistoryMessages;
-        if (max <= 0 || history.Count <= max)
+        try
         {
-            return history;
+            await _audit.WriteAsync(
+                new AuditEntry(DateTimeOffset.UtcNow, _user.UserId, _user.Roles, _turn.ConversationId, pending.ToolName, kind, pending.ParametersJson, result, kind != AuditKind.Denied, 0),
+                cancellationToken);
         }
-
-        return history.Skip(history.Count - max);
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Audit-loggen kunne ikke skrives ({Kind}, {Tool}).", kind, pending.ToolName);
+        }
     }
 }
