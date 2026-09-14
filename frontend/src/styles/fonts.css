@@ -1,0 +1,29 @@
+/*
+ * IST's egne fonte (PP Object Sans og PP Editorial New fra Pangram Pangram) er licenserede og ligger
+ * IKKE i repoet. Har I licens, så læg .woff2-filerne i public/fonts/ (mappen er gitignored) og fjern
+ * kommentaren herunder — tokens.css nævner allerede fontene forrest i font-stacken, så de tages i brug
+ * automatisk. Indtil da bruges system-sans og Instrument Serif (Google Fonts, indlæst i index.html).
+ */
+
+/*
+@font-face {
+  font-family: 'PP Object Sans';
+  src: url('/fonts/PP-Object-Sans-Web-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PP Object Sans';
+  src: url('/fonts/PP-Object-Sans-Web-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PP Editorial New';
+  src: url('/fonts/PP-Editorial-New-Web-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+*/

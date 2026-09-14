@@ -496,3 +496,7 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Licenserede fonte (PP Object Sans / PP Editorial New) må ikke i git
+frontend/public/fonts/
+frontend/.eslintcache
