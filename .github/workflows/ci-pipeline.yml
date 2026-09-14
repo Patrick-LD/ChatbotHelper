@@ -40,3 +40,52 @@ jobs:
       - name: Skipped (no solution yet)
         if: steps.check.outputs.exists != 'true'
         run: echo "Chatbot.sln findes ikke endnu - build og test springes over (se fase 1.2 i BUILD_GUIDE.md)."
+
+  # Fase 6: Vue-frontend i frontend/. Kører parallelt med backend-jobbet.
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for frontend
+        id: check
+        working-directory: .
+        run: echo "exists=${{ hashFiles('frontend/package.json') != '' }}" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        if: steps.check.outputs.exists == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        if: steps.check.outputs.exists == 'true'
+        run: npm ci
+
+      - name: Lint
+        if: steps.check.outputs.exists == 'true'
+        run: npm run lint
+
+      - name: Typecheck
+        if: steps.check.outputs.exists == 'true'
+        run: npm run typecheck
+
+      - name: Unit tests
+        if: steps.check.outputs.exists == 'true'
+        run: npm test
+
+      - name: Build
+        if: steps.check.outputs.exists == 'true'
+        run: npm run build-only
+
+      - name: Skipped (no frontend yet)
+        if: steps.check.outputs.exists != 'true'
+        working-directory: .
+        run: echo "frontend/package.json findes ikke endnu - frontend-jobbet springes over."
