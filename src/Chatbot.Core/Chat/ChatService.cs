@@ -19,6 +19,7 @@ public sealed class ChatService : IChatService
     private readonly TurnContext _turn;
     private readonly ChatbotOptions _options;
     private readonly TimeSpan _pendingTimeout;
+    private readonly IReadOnlyList<string> _defaultRoles;
     private readonly ILogger<ChatService> _logger;
 
     public ChatService(
@@ -42,6 +43,9 @@ public sealed class ChatService : IChatService
         _turn = turn;
         _options = options.Value;
         _pendingTimeout = TimeSpan.FromMinutes(toolsOptions.Value.PendingActionTimeoutMinutes);
+        // Distinct, fordi konfigurationsbinding LÆGGER TIL et array med standardværdier i stedet for at erstatte det:
+        // ["medarbejder","hr"] i koden + det samme i appsettings gav [medarbejder, hr, medarbejder, hr].
+        _defaultRoles = NormalizeRoles(toolsOptions.Value.DefaultRoles);
         _logger = logger;
     }
 
@@ -57,6 +61,12 @@ public sealed class ChatService : IChatService
             : request.ConversationId;
 
         _turn.ConversationId = conversationId;
+
+        // Rollerne afgør, hvilke tools modellen overhovedet får at se (fase 4.2). Indtil fase 5.1
+        // kobler rigtig autentificering på, er de en påstand fra kaldet — eller standardrollerne.
+        var requestedRoles = request.Roles is null ? [] : NormalizeRoles(request.Roles);
+        _turn.Roles = requestedRoles.Count > 0 ? requestedRoles : _defaultRoles;
+
         var userMessage = new ChatMessage(ChatRole.User, request.Message);
 
         // Bekræftelses-flowet (fase 3.3) afgøres HER, før modellen ser beskeden. Et klart "ja" udfører
@@ -109,14 +119,20 @@ public sealed class ChatService : IChatService
         // Tools gives med i hvert kald. Modellen vælger selv, om den kalder et — og
         // IChatClient-pipelinen (UseFunctionInvocation) udfører kaldet og sender resultatet
         // tilbage til modellen, før det endelige svar kommer hertil.
-        var tools = _toolProviders.SelectMany(p => p.GetTools()).ToList();
+        var tools = new List<AITool>();
+        foreach (var provider in _toolProviders)
+        {
+            tools.AddRange(await provider.GetToolsAsync(cancellationToken));
+        }
+
         var chatOptions = tools.Count > 0 ? new ChatOptions { Tools = tools } : null;
 
         _logger.LogInformation(
-            "Kalder model for samtale {ConversationId} med {MessageCount} beskeder og {ToolCount} tools.",
+            "Kalder model for samtale {ConversationId} med {MessageCount} beskeder og {ToolCount} tools (roller: {Roles}).",
             conversationId,
             prompt.Count,
-            tools.Count);
+            tools.Count,
+            string.Join(", ", _turn.Roles));
 
         var response = await _chatClient.GetResponseAsync(prompt, chatOptions, cancellationToken);
 
@@ -162,16 +178,34 @@ public sealed class ChatService : IChatService
 
     private async Task<string> ExecuteAsync(string conversationId, PendingAction pending, CancellationToken cancellationToken)
     {
-        var executor = _executors.FirstOrDefault(e => e.ToolName == pending.ToolName)
-            ?? throw new InvalidOperationException($"Ingen executor registreret for toolet '{pending.ToolName}'.");
+        IActionExecutor? executor = null;
+        foreach (var candidate in _executors)
+        {
+            if (await candidate.CanExecuteAsync(pending.ToolName, cancellationToken))
+            {
+                executor = candidate;
+                break;
+            }
+        }
 
         // Ryd FØR udførelsen, så et gentaget "ja" ikke kan udføre handlingen to gange.
         await _pending.ClearAsync(conversationId, cancellationToken);
 
+        if (executor is null)
+        {
+            // Toolet er fjernet fra registret, siden forslaget blev lavet. Ikke en fejl i koden — sig det.
+            _logger.LogWarning("Ingen executor for toolet '{Tool}' i samtale {ConversationId}. Handlingen kasseres.", pending.ToolName, conversationId);
+            return $"Handlingen blev ikke udført: toolet '{pending.ToolName}' findes ikke længere. Intet er ændret.";
+        }
+
         _logger.LogInformation("Udfører bekræftet handling i samtale {ConversationId}: {Summary}", conversationId, pending.Summary);
 
-        return await executor.ExecuteAsync(pending.ParametersJson, cancellationToken);
+        return await executor.ExecuteAsync(pending, cancellationToken);
     }
+
+    /// <summary>Små bogstaver, trimmet, uden tomme og uden dubletter — så "HR" og "hr" er samme rolle.</summary>
+    private static List<string> NormalizeRoles(IEnumerable<string> roles)
+        => roles.Select(r => r.Trim().ToLowerInvariant()).Where(r => r.Length > 0).Distinct().ToList();
 
     /// <summary>Beholder kun de seneste beskeder, så prompten ikke vokser i det uendelige.</summary>
     private IEnumerable<ChatMessage> Trim(IReadOnlyList<ChatMessage> history)

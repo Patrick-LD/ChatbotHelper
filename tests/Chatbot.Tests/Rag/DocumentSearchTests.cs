@@ -1,5 +1,6 @@
+using System.Text.Json;
 using Chatbot.Core.Rag;
-using Microsoft.Extensions.AI;
+using Chatbot.Core.Tools.Registry;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -93,17 +94,19 @@ public class DocumentSearchTests
     }
 
     [Fact]
-    public async Task Tool_eksponeres_som_AIFunction_med_navn_og_beskrivelse()
+    public async Task Tool_kan_kaldes_som_internt_registry_tool_med_query_argument()
     {
         var embeddings = new FakeEmbeddingGenerator();
         var (search, _) = await CreateIndexedAsync(embeddings);
-        var tool = new DocumentSearchTool(search, new RetrievalContext());
+        var retrieved = new RetrievalContext();
+        IInternalTool tool = new DocumentSearchTool(search, retrieved);
 
-        var function = Assert.IsAssignableFrom<AIFunction>(Assert.Single(tool.GetTools()));
+        using var args = JsonDocument.Parse("""{ "query": "feriedage om året" }""");
+        var text = await tool.InvokeAsync(args.RootElement);
 
-        Assert.Equal(DocumentSearchTool.ToolName, function.Name);
-        Assert.Contains("dokumentation", function.Description);
-        Assert.Contains("query", function.JsonSchema.ToString());
+        Assert.Equal(DocumentSearchTool.HandlerKey, tool.Key);
+        Assert.Contains("25 feriedage", text);
+        Assert.Equal(2, retrieved.Hits.Count);
     }
 
     private static DocumentChunk Chunk(string source, string heading, int index, string content, FakeEmbeddingGenerator embeddings)

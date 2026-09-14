@@ -1,21 +1,25 @@
-using System.ComponentModel;
 using System.Text;
-using Chatbot.Core.Chat;
-using Microsoft.Extensions.AI;
+using System.Text.Json;
+using Chatbot.Core.Tools.Registry;
 
 namespace Chatbot.Core.Rag;
 
 /// <summary>
-/// Eksponerer dokumentationssøgningen som et tool, modellen selv kan vælge at kalde.
+/// Dokumentationssøgningen som et tool, modellen selv kan vælge at kalde.
 /// Det er projektplanens bærende princip: "dokumentationssøgning er bare endnu et tool".
-/// I fase 3 kommer handlings-tools til på samme måde, og i fase 4 loades de fra databasen.
 ///
-/// Beskrivelsen på metoden er ikke pynt — det er den tekst, modellen læser, når den skal
-/// beslutte, om den skal søge. Skriv den som til en ny kollega: hvornår, og hvornår ikke.
+/// Fra fase 4 er klassen en <see cref="IInternalTool"/>: navn, beskrivelse, parametre og roller
+/// står i tool-registret (rækken <c>soeg_i_dokumentation</c> med handler-typen <c>internal</c> og
+/// nøglen <see cref="HandlerKey"/>) — koden her leverer kun udførelsen. Beskrivelsen, modellen læser,
+/// er derfor ikke længere en attribut i koden, men en kolonne i databasen (se <see cref="ToolSeed"/>).
 /// </summary>
-public sealed class DocumentSearchTool : IChatToolProvider
+public sealed class DocumentSearchTool : IInternalTool
 {
+    /// <summary>Tool-navnet i registret. Bruges af seed og evaluering.</summary>
     public const string ToolName = "soeg_i_dokumentation";
+
+    /// <summary>Nøglen registret peger på i handlerConfig: { "handler": "dokumentationssoegning" }.</summary>
+    public const string HandlerKey = "dokumentationssoegning";
 
     private readonly IDocumentSearchService _search;
     private readonly RetrievalContext _retrieved;
@@ -26,19 +30,18 @@ public sealed class DocumentSearchTool : IChatToolProvider
         _retrieved = retrieved;
     }
 
-    public IReadOnlyList<AITool> GetTools() =>
-    [
-        AIFunctionFactory.Create(SearchAsync, ToolName),
-    ];
+    public string Key => HandlerKey;
 
-    [Description(
-        "Søger i virksomhedens interne dokumentation (personalehåndbog, vejledninger, processer, IT-systemer) " +
-        "og returnerer de mest relevante uddrag med kildehenvisning. Brug dette tool, hver gang brugeren spørger " +
-        "om virksomhedens regler, procedurer, systemer eller hvordan man gør noget internt — også når du tror, du " +
-        "kender svaret. Brug det ikke til småsnak eller almen viden, der ikke handler om virksomheden.")]
-    public async Task<string> SearchAsync(
-        [Description("Brugerens spørgsmål eller emne, formuleret så præcist som muligt, på dansk.")] string query,
-        CancellationToken cancellationToken = default)
+    public Task<string> InvokeAsync(JsonElement arguments, CancellationToken cancellationToken = default)
+    {
+        var query = arguments.ValueKind == JsonValueKind.Object && arguments.TryGetProperty("query", out var q)
+            ? TemplateRenderer.AsText(q)
+            : string.Empty;
+
+        return SearchAsync(query, cancellationToken);
+    }
+
+    public async Task<string> SearchAsync(string query, CancellationToken cancellationToken = default)
     {
         var hits = await _search.SearchAsync(query, cancellationToken);
         _retrieved.Add(hits);

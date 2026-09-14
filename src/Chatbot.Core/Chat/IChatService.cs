@@ -11,7 +11,8 @@ public interface IChatService
 
 /// <param name="Message">Brugerens besked.</param>
 /// <param name="ConversationId">Samtalen der fortsættes. Er den tom, startes en ny.</param>
-public sealed record ChatTurnRequest(string Message, string? ConversationId = null);
+/// <param name="Roles">Brugerens roller — afgør hvilke tools modellen får. Null/tom = <c>Tools:DefaultRoles</c>.</param>
+public sealed record ChatTurnRequest(string Message, string? ConversationId = null, IReadOnlyList<string>? Roles = null);
 
 /// <param name="Reply">Botten svar.</param>
 /// <param name="ConversationId">Id'et der skal sendes med i næste kald for at bevare konteksten.</param>
