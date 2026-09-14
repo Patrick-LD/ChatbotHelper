@@ -3,6 +3,7 @@ namespace Chatbot.Core.Chat;
 /// <summary>
 /// Orkestreringen af én tur i samtalen: systemprompt + historik + tools → modelkald,
 /// samt bekræftelses-flowet for handlinger, der venter på brugerens ja.
+/// Brugeren (id og roller) kommer fra <see cref="Security.CurrentUser"/>, ikke fra requestet.
 /// </summary>
 public interface IChatService
 {
@@ -11,8 +12,7 @@ public interface IChatService
 
 /// <param name="Message">Brugerens besked.</param>
 /// <param name="ConversationId">Samtalen der fortsættes. Er den tom, startes en ny.</param>
-/// <param name="Roles">Brugerens roller — afgør hvilke tools modellen får. Null/tom = <c>Tools:DefaultRoles</c>.</param>
-public sealed record ChatTurnRequest(string Message, string? ConversationId = null, IReadOnlyList<string>? Roles = null);
+public sealed record ChatTurnRequest(string Message, string? ConversationId = null);
 
 /// <param name="Reply">Botten svar.</param>
 /// <param name="ConversationId">Id'et der skal sendes med i næste kald for at bevare konteksten.</param>
@@ -28,3 +28,7 @@ public sealed record ChatTurnResult(
 /// <param name="Heading">Afsnittet i dokumentet.</param>
 /// <param name="Score">Højeste lighed (0-1) blandt de hentede chunks fra afsnittet.</param>
 public sealed record SourceReference(string Source, string Heading, double Score);
+
+/// <summary>Brugeren forsøgte at fortsætte en samtale, der tilhører en anden bruger. Web-laget svarer 403.</summary>
+public sealed class ConversationOwnershipException(string conversationId)
+    : Exception($"Samtalen '{conversationId}' tilhører en anden bruger.");
