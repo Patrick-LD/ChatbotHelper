@@ -11,6 +11,7 @@ vurderer selv, om et spørgsmål kræver dokumentationssøgning, et tool-kald el
 👉 **[docs/FASE-2-FORKLARET.md](docs/FASE-2-FORKLARET.md)** — RAG-kernen forklaret, inkl. evaluering og baseline.
 👉 **[docs/FASE-3-FORKLARET.md](docs/FASE-3-FORKLARET.md)** — handlings-tools og bekræftelses-flowet forklaret.
 👉 **[docs/FASE-4-FORKLARET.md](docs/FASE-4-FORKLARET.md)** — tool-registry i databasen, rettigheder og MCP forklaret.
+👉 **[docs/FASE-5-FORKLARET.md](docs/FASE-5-FORKLARET.md)** — autentificering, audit-log, prompt injection og robusthed forklaret.
 
 ## Teknologi
 
@@ -32,7 +33,7 @@ vurderer selv, om et spørgsmål kræver dokumentationssøgning, et tool-kald el
 | Fase 2 — RAG-kernen | ✅ baseline 16/20 (80 %) |
 | Fase 3 — Statiske tools | ✅ 23/26 (88 %), tool-scenarier 6/6 |
 | Fase 4 — Dynamisk tool-registry + MCP | ✅ 24/28 (86 %), tool- og rettigheds-scenarier 8/8; tools er rækker i Postgres, MCP-server importeret |
-| Fase 5 — Hærdning og guidning | ⬜ |
+| Fase 5 — Hærdning og guidning | ✅ API-nøgler og roller, audit-log, historik i Postgres, prompt injection-test; brugertest med rigtige brugere udestår |
 
 ## Kom i gang
 
@@ -75,10 +76,15 @@ curl -X POST http://localhost:5022/chat -H "Content-Type: application/json" \
   -d '{"message":"ja","conversationId":"<id fra svaret>"}'
 ```
 
+Alle kald undtagen `/health` kræver en API-nøgle i headeren `X-Api-Key` (fase 5). Nøglen afgør bruger-id og roller;
+udviklingsnøglerne står i [appsettings.Development.json](src/Chatbot.Api/appsettings.Development.json)
+(`dev-medarbejder-…`, `dev-hr-…`, `dev-admin-…`). En samtale kan kun fortsættes af den bruger, der startede den.
+
 Tools er rækker i Postgres (fase 4), ikke kode. `GET /tools` viser dem; et nyt tool tilføjes med én `PUT /tools/{navn}`
-og er tilgængeligt for modellen i næste tur — uden genstart. Hvilke tools modellen får, afgøres af brugerens roller:
-send `X-Roles: medarbejder` (kommasepareret), ellers gælder `Tools:DefaultRoles`. MCP-servere registreres med
-`PUT /mcp-servers/{navn}` og deres tools importeres som rækker med `POST /mcp-servers/{navn}/import`.
+og er tilgængeligt for modellen i næste tur — uden genstart. Hvilke tools modellen får, afgøres af brugerens roller.
+Drifts-endpoints (`/tools`, `/roles`, `/mcp-servers`, `/ingest`, `/audit`) kræver rollen `admin`. MCP-servere
+registreres med `PUT /mcp-servers/{navn}` og deres tools importeres som rækker med `POST /mcp-servers/{navn}/import`.
+`GET /audit` viser, hvem der kaldte hvilket tool med hvilke parametre og resultat.
 
 Samme flows ligger klikbart i [Chatbot.Api.http](src/Chatbot.Api/Chatbot.Api.http).
 `GET /search?q=...` viser de rå søgeresultater uden modellen — det første sted at kigge, når et svar er dårligt.
@@ -92,13 +98,16 @@ og skriver en rapport. Kør det efter hver ændring af chunking, prompt eller mo
 dotnet run --project tools/Chatbot.Eval -- docs/evaluering/evalueringssaet.json docs/evaluering/resultater/<dato>-<aendring>.md
 ```
 
+Værktøjet sender udviklingsnøglen `dev-hr-2026-noegle` som `X-Api-Key` (skift med miljøvariablen `CHATBOT_API_KEY`);
+cases med egen `apiKey` (R01/R02) bruger den i stedet, så rettigheder kan evalueres.
+
 ### Projektstruktur
 
 | Sti | Indhold |
 | --- | --- |
-| `src/Chatbot.Api` | Tyndt web-lag: DI-opsætning, `POST /chat`, `POST /ingest`, `GET /search`, tool-registry (`/tools`, `/roles`, `/mcp-servers`), `GET /health`, Swagger |
-| `src/Chatbot.Core` | Orkestrering (`ChatService`, `IChatToolProvider`, bekræftelses-flow), RAG (`TextChunker`, `IngestionService`, `DocumentSearchTool`), tool-registry (`ToolDefinition`, `RegistryFunction`, `DynamicToolProvider`, `IToolHandler`, `ToolSeed`), `PendingAction`, `ConfirmationParser`, interfaces |
-| `src/Chatbot.Infrastructure` | Implementeringer mod eksterne systemer: `PgVectorStore` (pgvector), `PgToolRegistry` (tool-tabellerne), `HttpToolHandler` (HTTP-tools), `McpToolHandler` + `McpClientPool` (MCP-servere) |
+| `src/Chatbot.Api` | Tyndt web-lag: DI-opsætning, API-nøgle-autentificering (`ApiKeyAuthenticationHandler`), `POST /chat`, `POST /ingest`, `GET /search`, tool-registry (`/tools`, `/roles`, `/mcp-servers`), `GET /audit`, `GET /health`, Swagger |
+| `src/Chatbot.Core` | Orkestrering (`ChatService`, `IChatToolProvider`, bekræftelses-flow), RAG (`TextChunker`, `IngestionService`, `DocumentSearchTool`), tool-registry (`ToolDefinition`, `RegistryFunction` med argumentvalidering, `DynamicToolProvider`, `IToolHandler`, `ToolSeed`), sikkerhed (`CurrentUser`, `IAuditLog`), `PendingAction`, `ConfirmationParser` |
+| `src/Chatbot.Infrastructure` | Implementeringer mod Postgres og eksterne systemer: `PgVectorStore`, `PgToolRegistry`, `PgConversationStore`, `PgPendingActionStore`, `PgAuditLog`, `HttpToolHandler`, `McpToolHandler` + `McpClientPool` |
 | `src/Chatbot.DummyHr` | Dummy-HR-API i hukommelsen — "PersonaleNet" til test af handlinger |
 | `tests/Chatbot.Tests` | Enhedstests mod fakes: `FakeChatClient`, `FakeEmbeddingGenerator`, `InMemoryVectorStore`, `FakeToolRegistry`, `FakeToolHandler` |
 | `tools/Chatbot.Eval` | Konsolværktøj der kører evalueringssættet og skriver en Markdown-rapport |

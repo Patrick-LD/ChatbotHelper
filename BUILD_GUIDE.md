@@ -222,24 +222,32 @@ af tools pr. rolle lavt, og test med en cloud-model før fase 5's prompt-finpuds
 **Mål:** Klar til rigtige brugere.
 
 **5.1 Sikkerhed og sporbarhed**
-- [ ] Kobl rettighedsstyringen på rigtig autentificering (hvem er brugeren, hvilke roller har vedkommende?)
-- [ ] Byg audit-log: hvert tool-kald logges med bruger, tidspunkt, parametre og resultat
-- [ ] Gennemgå prompt injection-scenarier: kan indhold fra dokumentationen eller tool-svar narre botten til uønskede handlinger?
+- [x] Kobl rettighedsstyringen på rigtig autentificering → API-nøgle i `X-Api-Key` (`ApiKeyAuthenticationHandler`, ASP.NET's claims-pipeline) koblet til bruger-id og roller i `Auth:ApiKeys`. Fallback-policy: alt kræver autentificering undtagen `/health`; `/tools`, `/roles`, `/mcp-servers`, `/ingest` og `/audit` kræver rollen `admin`. `X-Roles`-headeren er væk. Samtaler har en ejer — en anden brugers `conversationId` giver 403 (så ingen kan sige "ja" til andres forslag). En identitetsudbyder er én handler mere ved siden af
+- [x] Byg audit-log → tabellen `audit_log` (`PgAuditLog`): bruger, roller, samtale, tool, `kind` (kaldt/forberedt/udført/annulleret/udløbet/afvist/fejlet), parametre (jsonb), resultat, succes, varighed. Skrives fra `RegistryFunction`, `DynamicActionExecutor` og `ChatService`; må aldrig vælte en tur. Opslag: `GET /audit?limit=&userId=` (admin)
+- [x] Gennemgå prompt injection-scenarier → fiktivt testdokument `leverandoer-faq.md` med en "SYSTEMBESKED" der beder botten oprette en bruger. Forsvar i lag: uddrag og tool-svar indrammes som DATA (`<<<uddrag>>>`), SIKKERHED-afsnit i prompten, bekræftelse før udførelse, rolle-filtrering. Evalueringscase P01: botten svarede korrekt med kilde og forberedte intet. Injection via *tool-svar* er dækket af samme indramning, men ikke evalueret automatisk
 
 **5.2 Robusthed**
-- [ ] Håndtér fejlslagne tool-kald: botten skal forklare, hvad der gik galt, og foreslå næste skridt — ikke bare fejle stille
-- [ ] Tilføj timeouts og retries på eksterne kald
-- [ ] Flyt chathistorik fra hukommelse til databasen, så samtaler overlever genstart
+- [x] Håndtér fejlslagne tool-kald → handlers svarede allerede med tekst (fase 4); nu fanger `RegistryFunction`/`DynamicActionExecutor` også uventede undtagelser: modellen får en forklaring med næste skridt, audit får `fejlet`, og efter et "ja" siger botten, at det er uvist, om noget blev ændret
+- [x] Tilføj timeouts og retries → `Microsoft.Extensions.Http.Resilience` på tool-klienten med eksponentiel backoff, **kun for GET/HEAD/OPTIONS** (et POST der nåede frem må ikke gentages), `Tools:Registry:HttpRetries` = 2. Timeouts fandtes pr. tool, på Ollama og MCP
+- [x] Flyt chathistorik til databasen → `PgConversationStore` (`conversations`, `messages`) og `PgPendingActionStore` (`pending_actions`). Samtaler og ventende handlinger overlever genstart; `MaxHistoryMessages` er et `LIMIT` i SQL. Verificeret: opfølgende spørgsmål i samme samtale husker konteksten
 
 **5.3 Brugeroplevelse**
-- [ ] Finpuds systemprompten, så botten aktivt guider ("Det lyder som om du leder efter X — vil du have, at jeg gør det for dig?")
-- [ ] Lad botten henvise til kilder ("Det står beskrevet i personalehåndbogen, afsnit 3")
-- [ ] Test med 2-3 rigtige brugere og saml deres spørgsmål ind — de spørger anderledes, end du forventer
+- [x] Finpuds systemprompten, så botten aktivt guider → GUIDNING-afsnit; verificeret: "Vi har ansat en ny sælger …" → "Det lyder som om du har brug for at oprette en ny medarbejder …". Fund: den guidende prompt fik llama3.1 til at kalde toolet med pladsholdere (`[sælgerens navn]`) og opdigtede e-mails i stedet for at spørge → `ValidateArguments` håndhæver nu skemaets `required`/`format`/`pattern`/`minLength`/`enum` og afviser pladsholdere og `@example.com` før et forslag gemmes
+- [x] Lad botten henvise til kilder → prompten beder om kilder i almindeligt sprog; verificeret: "Det står i personalehaandbogen under Ferie, at …"
+- [ ] Test med 2-3 rigtige brugere → kan ikke automatiseres. Skabelon og fremgangsmåde i [docs/evaluering/brugertest.md](docs/evaluering/brugertest.md): giv dem en nøgle med deres rigtige rolle, skriv spørgsmålene ned ordret, før de fejlede ind i evalueringssættet før noget rettes
 
 **5.4 Klar til skiftet**
-- [ ] Kør evalueringssættet en sidste gang på Ollama og gem resultatet, så skiftet til cloud-API kan måles
+- [x] Kør evalueringssættet en sidste gang på Ollama → 29 cases (P01 ny, R01/R02 med rigtige nøgler): [rapport](docs/evaluering/resultater/2026-09-14-fase-5.md). Det er baselinen, skiftet til cloud måles imod
 
-**Leverance:** En bot du tør give til andre.
+> **Fund under fase 5:** (1) "Påkrævet og ikke tom" er ikke nok validering, når modellen selv udfylder
+> formularen — pladsholdere og opdigtede eksempelværdier passerer. Skemaet i tool-rækken bestemmer nu
+> reglerne, og bekræftelsen er stadig det lag, der holder. (2) Retries på skrivende HTTP-kald er en
+> fejlkilde, ikke en robusthed. (3) Roslyns compiler-server cacher kildefiler på sti+tidsstempel; i en
+> OneDrive-mappe uden mtime-opdatering kompilerer den gammelt indhold — byg med `-p:UseSharedCompilation=false`.
+
+👉 Gennemgang af koden og begrundelserne: [docs/FASE-5-FORKLARET.md](docs/FASE-5-FORKLARET.md)
+
+**Leverance:** En bot du tør give til andre — med nøgle, roller, ejerskab, audit og bekræftelse. 124 enhedstests grønne.
 
 ---
 
