@@ -63,6 +63,23 @@ var authOptions = builder.Configuration
     .GetSection(AuthOptions.SectionName)
     .Get<AuthOptions>() ?? new AuthOptions();
 
+builder.Services.AddSingleton<IValidateOptions<FrontendCorsOptions>, FrontendCorsOptionsValidator>();
+builder.Services
+    .AddOptions<FrontendCorsOptions>()
+    .Bind(builder.Configuration.GetSection(FrontendCorsOptions.SectionName))
+    .ValidateOnStart();
+
+var corsOrigins = (builder.Configuration
+    .GetSection(FrontendCorsOptions.SectionName)
+    .Get<FrontendCorsOptions>() ?? new FrontendCorsOptions()).Origins;
+
+// CORS (fase 6): frontend'en er et statisk site på sin egen origin. Kun de konfigurerede origins,
+// kun de headers vi bruger — X-Api-Key er en custom header og udløser preflight.
+builder.Services.AddCors(options => options.AddPolicy(FrontendCorsOptions.PolicyName, policy => policy
+    .WithOrigins(corsOrigins)
+    .WithHeaders("X-Api-Key", "Content-Type")
+    .WithMethods("GET", "POST", "PUT", "DELETE")));
+
 // Autentificering (fase 5.1): API-nøgle i X-Api-Key → bruger-id og roller som claims. Alle endpoints
 // undtagen /health kræver en bruger; drifts-endpoints kræver rollen admin. En identitetsudbyder
 // (Entra ID/JWT) tilføjes senere som endnu en handler — CurrentUser bygges af claims uanset kilde.
@@ -193,10 +210,17 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+if (corsOrigins.Length > 0)
+{
+    app.UseCors(FrontendCorsOptions.PolicyName);
+    app.Logger.LogInformation("CORS tilladt for: {Origins}", string.Join(", ", corsOrigins));
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).WithName("GetHealth").AllowAnonymous();
+app.MapMeEndpoints();
 app.MapChatEndpoints();
 app.MapRagEndpoints();
 app.MapToolEndpoints();

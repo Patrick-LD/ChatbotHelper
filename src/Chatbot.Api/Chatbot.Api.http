@@ -8,6 +8,10 @@
 ### Sundhedstjek (kræver ingen nøgle)
 GET {{host}}/health
 
+### Hvem er nøglen? (bruges af frontend'en ved login)
+GET {{host}}/me
+X-Api-Key: {{hr}}
+
 ### Uden nøgle → 401
 POST {{host}}/chat
 Content-Type: application/json
