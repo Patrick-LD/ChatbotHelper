@@ -264,7 +264,17 @@ API'et et udviklerværktøj og må ikke eksponeres for andre.
 | "Opret en medarbejder der hedder Lars Hansen" | Ingen forberedelse; botten spørger om de manglende oplysninger |
 
 Evalueringssættet har fået to rettigheds-scenarier (R01/R02 med `roles`), og evalueringsværktøjet
-sender `X-Roles`. Resultatet af den fulde kørsel står i [evalueringsrapporten](evaluering/resultater/).
+sender `X-Roles`. To fulde kørsler mod llama3.1:
+
+| Kørsel | Resultat | Tool-scenarier | Rettigheder |
+| --- | --- | --- | --- |
+| [Tre seedede tools](evaluering/resultater/2026-09-14-fase-4.md) (sammenligneligt med fase 3) | 24/28 = 86 % | 6/6 | 2/2 |
+| [Alle 7 tools i registret](evaluering/resultater/2026-09-14-fase-4-7-tools.md) | 23/28 = 82 % | 6/6 | 2/2 |
+
+Handlings- og rettighedsdelen er fejlfri i begge. Alle fejl er dokumentationsspørgsmål, hvor modellen
+**ikke søgte** — og fire ekstra tools kostede ét svar mere. Det er fase 3's advarsel ("en lokal 8B-model
+bliver upålidelig med flere tools") målt: tool-antallet pr. rolle er en kvalitetsknap, ikke kun en
+sikkerhedsknap. Roller er dermed også midlet mod tool-støj.
 
 ---
 

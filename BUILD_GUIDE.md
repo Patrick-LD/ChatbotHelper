@@ -212,6 +212,11 @@ første konkrete tegn på, at en lokal 8B-model bliver upålidelig med flere too
 👉 Gennemgang af koden og begrundelserne: [docs/FASE-4-FORKLARET.md](docs/FASE-4-FORKLARET.md)
 
 **Leverance:** Et nyt tool kan tilføjes via en database-række (`PUT /tools/{navn}`) eller en MCP-server (`POST /mcp-servers/{navn}/import`) — uden deploy. Verificeret mod llama3.1, HR-dummy'en og filesystem-MCP-serveren. 112 enhedstests grønne.
+**Evaluering: 24/28 = 86 %** med de tre seedede tools ([rapport](docs/evaluering/resultater/2026-09-14-fase-4.md)) og
+**23/28 = 82 %** med alle 7 tools i registret ([rapport](docs/evaluering/resultater/2026-09-14-fase-4-7-tools.md)).
+Tool-scenarier 6/6 og rettigheds-scenarier 2/2 i begge kørsler — migreringen til registret har ikke ændret handlings-adfærden.
+Alle fejl er RAG-spørgsmål, hvor llama3.1 springer søgningen over; fire ekstra tools kostede ét svar mere. Hold antallet
+af tools pr. rolle lavt, og test med en cloud-model før fase 5's prompt-finpudsning.
 
 ### Fase 5 — Hærdning og guidning
 **Mål:** Klar til rigtige brugere.
