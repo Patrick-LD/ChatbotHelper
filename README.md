@@ -10,6 +10,7 @@ vurderer selv, om et spørgsmål kræver dokumentationssøgning, et tool-kald el
 👉 **[docs/FASE-1-FORKLARET.md](docs/FASE-1-FORKLARET.md)** — gennemgang af fase 1-koden og begrundelserne bag valgene.
 👉 **[docs/FASE-2-FORKLARET.md](docs/FASE-2-FORKLARET.md)** — RAG-kernen forklaret, inkl. evaluering og baseline.
 👉 **[docs/FASE-3-FORKLARET.md](docs/FASE-3-FORKLARET.md)** — handlings-tools og bekræftelses-flowet forklaret.
+👉 **[docs/FASE-4-FORKLARET.md](docs/FASE-4-FORKLARET.md)** — tool-registry i databasen, rettigheder og MCP forklaret.
 
 ## Teknologi
 
@@ -30,7 +31,7 @@ vurderer selv, om et spørgsmål kræver dokumentationssøgning, et tool-kald el
 | Fase 1 — Fundament | ✅ verificeret mod llama3.1 |
 | Fase 2 — RAG-kernen | ✅ baseline 16/20 (80 %) |
 | Fase 3 — Statiske tools | ✅ 23/26 (88 %), tool-scenarier 6/6 |
-| Fase 4 — Dynamisk tool-registry + MCP | ⬜ |
+| Fase 4 — Dynamisk tool-registry + MCP | ✅ tools er rækker i Postgres, roller filtrerer, MCP-server importeret |
 | Fase 5 — Hærdning og guidning | ⬜ |
 
 ## Kom i gang
@@ -74,6 +75,11 @@ curl -X POST http://localhost:5022/chat -H "Content-Type: application/json" \
   -d '{"message":"ja","conversationId":"<id fra svaret>"}'
 ```
 
+Tools er rækker i Postgres (fase 4), ikke kode. `GET /tools` viser dem; et nyt tool tilføjes med én `PUT /tools/{navn}`
+og er tilgængeligt for modellen i næste tur — uden genstart. Hvilke tools modellen får, afgøres af brugerens roller:
+send `X-Roles: medarbejder` (kommasepareret), ellers gælder `Tools:DefaultRoles`. MCP-servere registreres med
+`PUT /mcp-servers/{navn}` og deres tools importeres som rækker med `POST /mcp-servers/{navn}/import`.
+
 Samme flows ligger klikbart i [Chatbot.Api.http](src/Chatbot.Api/Chatbot.Api.http).
 `GET /search?q=...` viser de rå søgeresultater uden modellen — det første sted at kigge, når et svar er dårligt.
 
@@ -90,18 +96,19 @@ dotnet run --project tools/Chatbot.Eval -- docs/evaluering/evalueringssaet.json 
 
 | Sti | Indhold |
 | --- | --- |
-| `src/Chatbot.Api` | Tyndt web-lag: DI-opsætning, `POST /chat`, `POST /ingest`, `GET /search`, `GET /health`, Swagger |
-| `src/Chatbot.Core` | Orkestrering (`ChatService`, `IChatToolProvider`, bekræftelses-flow), RAG (`TextChunker`, `IngestionService`, `DocumentSearchTool`), handlings-tools (`EmployeeTools`, `PendingAction`, `ConfirmationParser`), interfaces |
-| `src/Chatbot.Infrastructure` | Implementeringer mod eksterne systemer: `PgVectorStore` (Postgres + pgvector), `HttpEmployeeService` (HR-API) |
+| `src/Chatbot.Api` | Tyndt web-lag: DI-opsætning, `POST /chat`, `POST /ingest`, `GET /search`, tool-registry (`/tools`, `/roles`, `/mcp-servers`), `GET /health`, Swagger |
+| `src/Chatbot.Core` | Orkestrering (`ChatService`, `IChatToolProvider`, bekræftelses-flow), RAG (`TextChunker`, `IngestionService`, `DocumentSearchTool`), tool-registry (`ToolDefinition`, `RegistryFunction`, `DynamicToolProvider`, `IToolHandler`, `ToolSeed`), `PendingAction`, `ConfirmationParser`, interfaces |
+| `src/Chatbot.Infrastructure` | Implementeringer mod eksterne systemer: `PgVectorStore` (pgvector), `PgToolRegistry` (tool-tabellerne), `HttpToolHandler` (HTTP-tools), `McpToolHandler` + `McpClientPool` (MCP-servere) |
 | `src/Chatbot.DummyHr` | Dummy-HR-API i hukommelsen — "PersonaleNet" til test af handlinger |
-| `tests/Chatbot.Tests` | Enhedstests mod fakes: `FakeChatClient`, `FakeEmbeddingGenerator`, `InMemoryVectorStore`, `FakeEmployeeService` |
+| `tests/Chatbot.Tests` | Enhedstests mod fakes: `FakeChatClient`, `FakeEmbeddingGenerator`, `InMemoryVectorStore`, `FakeToolRegistry`, `FakeToolHandler` |
 | `tools/Chatbot.Eval` | Konsolværktøj der kører evalueringssættet og skriver en Markdown-rapport |
 | `data/dokumentation` | Testdokumentation (fiktiv) der indekseres af `/ingest` |
 | `docs/evaluering` | Evalueringssæt og resultater pr. kørsel |
 
 Systemprompt, model, timeout og historik-længde konfigureres i `Chatbot`-sektionen, chunking, `TopK`, `MinScore`,
-embedding-model og databaseforbindelse i `Rag`-sektionen, og HR-API'ets adresse og bekræftelsers levetid i
-`Tools`-sektionen i [appsettings.json](src/Chatbot.Api/appsettings.json) — ingen kodeændring nødvendig.
+embedding-model og databaseforbindelse i `Rag`-sektionen, og tool-registrets database, standardroller, HR-API'ets
+adresse (kun til seed) og bekræftelsers levetid i `Tools`-sektionen i [appsettings.json](src/Chatbot.Api/appsettings.json)
+— ingen kodeændring nødvendig.
 
 > **Ollama-endpointet er `127.0.0.1` og ikke `localhost`.** Kører der samtidig en Ollama i Docker,
 > lytter den på IPv6 på samme port 11434, og `localhost` kan ramme den forkerte server — med

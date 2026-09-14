@@ -62,7 +62,17 @@ foreach (var c in set.Cases)
     {
         try
         {
-            using var reply = await http.PostAsJsonAsync("/chat", new { message = turn, conversationId });
+            // Fase 4: en case kan angive "roles" — sendes som X-Roles, så rettighedsfiltreringen kan evalueres.
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/chat")
+            {
+                Content = JsonContent.Create(new { message = turn, conversationId }),
+            };
+            if (c.Roles is { Count: > 0 })
+            {
+                request.Headers.Add("X-Roles", string.Join(",", c.Roles));
+            }
+
+            using var reply = await http.SendAsync(request);
             if (!reply.IsSuccessStatusCode)
             {
                 error = $"HTTP {(int)reply.StatusCode}: {await reply.Content.ReadAsStringAsync()}";
@@ -211,6 +221,7 @@ sealed record EvalSet(string? Notes, List<EvalCase> Cases);
 /// <param name="Expected">Nøgleord der SKAL være i svaret. "a|b" betyder a eller b.</param>
 /// <param name="Forbidden">Nøgleord der IKKE må være i svaret (typisk hallucinationer).</param>
 /// <param name="ExpectedSource">Kildefil der skal være slået op. Tom streng = botten må ikke have fundet noget. null = ligegyldigt.</param>
+/// <param name="Roles">Roller der sendes som X-Roles (fase 4). null = API'ets standardroller.</param>
 sealed record EvalCase(
     string Id,
     string? Question,
@@ -219,7 +230,8 @@ sealed record EvalCase(
     List<string>? Expected,
     List<string>? Forbidden,
     string? ExpectedSource,
-    bool? ExpectedPending)
+    bool? ExpectedPending,
+    List<string>? Roles)
 {
     /// <summary>Overskrift i rapporten: spørgsmålet, eller første tur for flertrins-cases.</summary>
     public string Title => Question ?? (Turns is { Count: > 0 } ? Turns[0] + (Turns.Count > 1 ? $" (+{Turns.Count - 1} ture)" : "") : Id);

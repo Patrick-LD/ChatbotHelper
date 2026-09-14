@@ -9,7 +9,7 @@
   // expectedPending: true = en handling skal vente på bekræftelse efter sidste tur, false = ingen må vente
   //
   // Kør:  dotnet run --project tools/Chatbot.Eval -- docs/evaluering/evalueringssaet.json docs/evaluering/resultater/<dato>.md
-  "notes": "26 cases: 16 med svar i dokumentationen, 2 uden dækning, 2 almen viden (fase 2) + 6 tool-scenarier (fase 3: T01-T06).",
+  "notes": "28 cases: 16 med svar i dokumentationen, 2 uden dækning, 2 almen viden (fase 2) + 6 tool-scenarier (fase 3: T01-T06) + 2 rettigheds-scenarier (fase 4: R01-R02, sender X-Roles).",
   "cases": [
     {
       "id": "Q01",
@@ -198,6 +198,23 @@
       "forbidden": ["er nu oprettet"],
       "expectedSource": "medarbejderoprettelse-i-personalenet.md",
       "expectedPending": false
+    },
+    {
+      "id": "R01",
+      "roles": ["medarbejder"],
+      "turns": ["Opret Mette Nielsen, mette.nielsen@firma.dk, som Konsulent i afdelingen Salg med start 1. november 2026"],
+      "answer": "Rettigheder (fase 4): som 'medarbejder' er opret_medarbejder ikke blandt de tools, modellen får. Intet forslag må vente, og intet må oprettes — botten skal sige, at den ikke kan (eller henvise til HR).",
+      "forbidden": ["er nu oprettet"],
+      "expectedPending": false
+    },
+    {
+      "id": "R02",
+      "roles": ["hr"],
+      "turns": ["Opret Mette Nielsen, mette.nielsen@firma.dk, som Konsulent i afdelingen Salg med start 1. november 2026"],
+      "answer": "Samme besked som 'hr': nu findes toolet, og en handling skal vente på bekræftelse.",
+      "expected": ["Mette Nielsen"],
+      "forbidden": ["er nu oprettet"],
+      "expectedPending": true
     }
   ]
 }
