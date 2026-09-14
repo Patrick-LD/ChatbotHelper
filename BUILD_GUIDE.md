@@ -183,25 +183,35 @@ første konkrete tegn på, at en lokal 8B-model bliver upålidelig med flere too
 **Mål:** Tools uden kodeændringer.
 
 **4.1 Datamodel**
-- [ ] Design tool-tabellen: navn, beskrivelse, JSON-skema for parametre, handler-type (HTTP/MCP/intern), endpoint-konfiguration, aktiv/inaktiv
-- [ ] Tilføj rettighedskoblingen: tabeller for roller og tool-rolle-tildelinger, så ikke alle kan benytte alle tools
-- [ ] Migrér de hardcodede tools fra fase 3 ind som rækker i tabellen
+- [x] Design tool-tabellen → `tools` i samme Postgres som vektor-indekset: `name`, `description`, `parameters_schema` (jsonb), `handler_type` (`internal`/`http`/`mcp`), `handler_config` (jsonb), `requires_confirmation`, `summary_template`, `is_active`. Oprettes af `PgToolRegistry.EnsureCreatedAsync` ved opstart — SQL'en dér er skemaet
+- [x] Tilføj rettighedskoblingen → `roles` + `tool_roles`. Et tool uden rolle-rækker kan *ingen* bruge (bevidst: en glemt tildeling skal give "mangler", ikke "alle må"). Seedet med rollerne `medarbejder` og `hr`
+- [x] Migrér de hardcodede tools fra fase 3 ind som rækker → `ToolSeed` indsætter dem første gang, registret er tomt: `soeg_i_dokumentation` (intern handler), `find_medarbejder` og `opret_medarbejder` (HTTP-rækker med body- og svar-skabeloner). `EmployeeTools`/`IEmployeeService`/`HttpEmployeeService` er slettet
 
 **4.2 Runtime-loader**
-- [ ] Byg en loader, der oversætter en tool-definition til en Semantic Kernel-funktion ved runtime (JSON-skema → parametre, handler-konfiguration → HTTP-kald)
-- [ ] Filtrér på brugerens rettigheder: kun tilladte tools loades ind i samtalen, så modellen slet ikke kan se resten
-- [ ] Test: tilføj et nyt tool udelukkende via en database-række og bekræft, at botten kan bruge det uden genstart/deploy
+- [x] Byg en loader, der oversætter en tool-definition til en funktion ved runtime → `RegistryFunction : AIFunction` (M.E.AI, jf. fase 1 — ikke Semantic Kernel): navn/beskrivelse/JSON-skema kommer fra rækken, argumenter uden for skemaet fjernes, og `requires_confirmation` giver fase 3's bekræftelses-flow generisk. Handler pr. type: `HttpToolHandler` (metode, URL med `{pladsholdere}`, body-skabelon, `successMessage`/`itemTemplate`/`emptyMessage`/`errorMessage`), `InternalToolHandler`, `McpToolHandler`
+- [x] Filtrér på brugerens rettigheder → `DynamicToolProvider` læser kun tools, turens roller har adgang til (filtret er i SQL), og `DynamicActionExecutor` tjekker igen ved "ja". Roller kommer fra headeren `X-Roles` eller `Tools:DefaultRoles` — en påstand indtil fase 5.1. Verificeret: som `medarbejder` får modellen 6 tools uden `opret_medarbejder`, og intet forslag opstår
+- [x] Test: nyt tool via `PUT /tools/hr_systemstatus` (GET mod HR-dummy'ens `/health`) mens API'et kørte → modellen kaldte det i næste tur. Admin-endpoints: `/tools`, `/roles`, `/mcp-servers` med validering (`ToolDefinitionValidator` + handlerens `Validate`)
 
 **4.3 MCP-integration**
-- [ ] Installér `ModelContextProtocol`-pakken fra NuGet
-- [ ] Tilslut en eksisterende MCP-server som første test (f.eks. en filesystem- eller test-server)
-- [ ] Map MCP-serverens tools ind i samme registry-model, inkl. rettigheder
-- [ ] Overvej: skal jeres egne systemer wrappes som MCP-servere fremadrettet?
+- [x] Installér `ModelContextProtocol` 2.2.0 (officielt C#-SDK; `McpClient`, `StdioClientTransport`/`HttpClientTransport`)
+- [x] Tilslut en eksisterende MCP-server → `@modelcontextprotocol/server-filesystem` via `npx` (stdio) mod `data/dokumentation`, registreret som række i `mcp_servers`. 14 tools listet på ~2 s; "Hvilke filer ligger i mappen …?" → modellen kalder `filer_list_directory`, og botten lister de syv dokumenter
+- [x] Map MCP-serverens tools ind i samme registry-model → `POST /mcp-servers/{navn}/import` laver tool-rækker (`filer_list_directory` …) med serverens beskrivelse og skema, `handler_type = mcp` og de angivne roller. Derefter er de almindelige rækker: roller, aktiv/inaktiv og bekræftelse styres som for alt andet. Kun tre læse-tools importeret; skrive-tools skal importeres med `requiresConfirmation: true`
+- [x] Overvej: skal jeres egne systemer wrappes som MCP-servere? → Anbefaling i [FASE-4-FORKLARET](docs/FASE-4-FORKLARET.md) §5: HTTP-rækker til eksisterende REST-API'er nu (én PUT, ingen ny proces); MCP når flere AI-klienter skal dele et system, eller tool-sættet ændrer sig så ofte, at "serveren beskriver sig selv" sparer vedligehold
 
 **4.4 Skalering**
-- [ ] Hvis tool-antallet vokser (50+): indeksér tool-beskrivelserne i vektor-databasen og filtrér semantisk, før tools gives til modellen
+- [ ] Hvis tool-antallet vokser (50+): indeksér tool-beskrivelserne i vektor-databasen og filtrér semantisk, før tools gives til modellen → ikke relevant med 7 tools; mekanikken er klar (registret leverer definitioner, loaderen bygger funktioner — filtret bliver et trin imellem)
 
-**Leverance:** Et nyt tool kan tilføjes via en database-række eller en MCP-server — uden deploy.
+> **Fund under fase 4:** (1) Får llama3.1 *ikke* et tool, den kender fra systemprompten, skriver den
+> tool-kaldet som rå JSON i svaret (`{"name":"opret_medarbejder","parameters":{…}}`). Ufarligt —
+> funktionen findes ikke, intet udføres — men prompten må ikke nævne dynamiske tools ved navn, og
+> `ReplySanitizer` erstatter nu et opdigtet tool-kald med en forklaring. (2) Konfigurationsbinding
+> *lægger til* et array med standardværdier: `DefaultRoles` blev `[medarbejder, hr, medarbejder, hr]`
+> — rollerne normaliseres nu ét sted. (3) Mappen ligger i OneDrive, som ikke opdaterer mtime på
+> redigerede filer; MSBuild ser derfor ændringer som "uændrede". Slet `obj/Debug` før build, når noget ikke giver mening.
+
+👉 Gennemgang af koden og begrundelserne: [docs/FASE-4-FORKLARET.md](docs/FASE-4-FORKLARET.md)
+
+**Leverance:** Et nyt tool kan tilføjes via en database-række (`PUT /tools/{navn}`) eller en MCP-server (`POST /mcp-servers/{navn}/import`) — uden deploy. Verificeret mod llama3.1, HR-dummy'en og filesystem-MCP-serveren. 112 enhedstests grønne.
 
 ### Fase 5 — Hærdning og guidning
 **Mål:** Klar til rigtige brugere.

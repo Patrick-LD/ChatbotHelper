@@ -4,10 +4,14 @@ namespace Chatbot.Api.Endpoints;
 
 public static class ChatEndpoints
 {
+    /// <summary>Kommasepareret liste af roller, f.eks. "medarbejder,hr". Midlertidig stedfortræder for autentificering (fase 5.1).</summary>
+    public const string RolesHeader = "X-Roles";
+
     public static IEndpointRouteBuilder MapChatEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/chat", async (
             ChatRequest request,
+            HttpRequest http,
             IChatService chatService,
             CancellationToken cancellationToken) =>
         {
@@ -16,10 +20,16 @@ public static class ChatEndpoints
                 return Results.BadRequest(new { error = "Feltet 'message' må ikke være tomt." });
             }
 
+            // Fase 4: brugerens roller afgør, hvilke tools modellen får. Indtil rigtig autentificering
+            // (fase 5.1) kommer de fra headeren X-Roles ("medarbejder,hr") — udelades den, gælder Tools:DefaultRoles.
+            var roles = http.Headers.TryGetValue(RolesHeader, out var header)
+                ? header.ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                : null;
+
             try
             {
                 var result = await chatService.SendAsync(
-                    new ChatTurnRequest(request.Message, request.ConversationId),
+                    new ChatTurnRequest(request.Message, request.ConversationId, roles),
                     cancellationToken);
 
                 return Results.Ok(new ChatResponse(

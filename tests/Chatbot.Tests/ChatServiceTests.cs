@@ -20,7 +20,8 @@ public class ChatServiceTests
         IConversationStore? store = null,
         IPendingActionStore? pending = null,
         IEnumerable<IActionExecutor>? executors = null,
-        int pendingTimeoutMinutes = 30)
+        int pendingTimeoutMinutes = 30,
+        TurnContext? turn = null)
         => new(
             client,
             store ?? new InMemoryConversationStore(),
@@ -28,14 +29,54 @@ public class ChatServiceTests
             executors ?? [],
             pending ?? new InMemoryPendingActionStore(),
             retrieved ?? new RetrievalContext(),
-            new TurnContext(),
+            turn ?? new TurnContext(),
             Options.Create(new ChatbotOptions
             {
                 SystemPrompt = SystemPrompt,
                 MaxHistoryMessages = maxHistoryMessages,
             }),
-            Options.Create(new ToolsOptions { PendingActionTimeoutMinutes = pendingTimeoutMinutes }),
+            // Dubletter og store bogstaver med vilje: konfigurationsbinding lægger til standard-arrayet, og det må ikke smitte af.
+            Options.Create(new ToolsOptions { PendingActionTimeoutMinutes = pendingTimeoutMinutes, DefaultRoles = ["medarbejder", "Medarbejder", " "] }),
             NullLogger<ChatService>.Instance);
+
+    // ---- Roller (fase 4.2) ----
+
+    [Fact]
+    public async Task SendAsync_saetter_turens_roller_fra_request_normaliseret()
+    {
+        var turn = new TurnContext();
+        var service = CreateService(new FakeChatClient(), turn: turn);
+
+        await service.SendAsync(new ChatTurnRequest("Hej", Roles: [" HR ", "medarbejder", "hr"]));
+
+        Assert.Equal(["hr", "medarbejder"], turn.Roles);
+    }
+
+    [Fact]
+    public async Task SendAsync_uden_roller_bruger_standardrollerne()
+    {
+        var turn = new TurnContext();
+        var service = CreateService(new FakeChatClient(), turn: turn);
+
+        await service.SendAsync(new ChatTurnRequest("Hej"));
+
+        Assert.Equal(["medarbejder"], turn.Roles);
+    }
+
+    [Fact]
+    public async Task SendAsync_ja_til_handling_uden_executor_kasserer_forslaget_og_siger_det()
+    {
+        var client = new FakeChatClient();
+        var pending = new InMemoryPendingActionStore();
+        await pending.SetAsync("c1", Pending());
+        var service = CreateService(client, pending: pending, executors: [new StubExecutor("et_andet_tool")]);
+
+        var result = await service.SendAsync(new ChatTurnRequest("ja", "c1"));
+
+        Assert.Equal(0, client.CallCount);
+        Assert.Contains("findes ikke længere", result.Reply);
+        Assert.Null(await pending.GetAsync("c1"));
+    }
 
     [Fact]
     public async Task SendAsync_sender_systemprompt_foerst()
@@ -253,18 +294,20 @@ public class ChatServiceTests
 
     private sealed class StubToolProvider(string name) : IChatToolProvider
     {
-        public IReadOnlyList<AITool> GetTools() => [AIFunctionFactory.Create(() => "ok", name)];
+        public Task<IReadOnlyList<AITool>> GetToolsAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<AITool>>([AIFunctionFactory.Create(() => "ok", name)]);
     }
 
     private sealed class StubExecutor(string toolName) : IActionExecutor
     {
-        public string ToolName => toolName;
-
         public string? ExecutedWith { get; private set; }
 
-        public Task<string> ExecuteAsync(string parametersJson, CancellationToken cancellationToken = default)
+        public Task<bool> CanExecuteAsync(string name, CancellationToken cancellationToken = default)
+            => Task.FromResult(name == toolName);
+
+        public Task<string> ExecuteAsync(PendingAction action, CancellationToken cancellationToken = default)
         {
-            ExecutedWith = parametersJson;
+            ExecutedWith = action.ParametersJson;
             return Task.FromResult("Udført!");
         }
     }

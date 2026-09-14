@@ -77,3 +77,89 @@ Content-Type: application/json
 
 ### HR-dummy direkte
 GET http://localhost:5100/employees
+
+### ---- Fase 4: tool-registry (tools er rækker i Postgres, ikke kode) ----
+
+### Alle tools i registret — seedet med fase 3's tre tools første gang
+GET {{host}}/tools
+
+### Rettigheder: som "medarbejder" ser modellen ikke opret_medarbejder og kan derfor ikke forberede noget
+POST {{host}}/chat
+Content-Type: application/json
+X-Roles: medarbejder
+
+{
+  "message": "Opret Mette Nielsen, mette.nielsen@firma.dk, som Konsulent i afdelingen Salg med start 1. november 2026"
+}
+
+### Nyt tool via én PUT — virker i næste chat-tur uden genstart (peger på HR-dummy'ens /health)
+PUT {{host}}/tools/hr_systemstatus
+Content-Type: application/json
+
+{
+  "description": "Tjekker om HR-systemet PersonaleNet kører, og hvor mange medarbejdere der er registreret. Brug det, når brugeren spørger, om PersonaleNet er oppe, eller hvor mange medarbejdere der er.",
+  "parametersSchema": { "type": "object", "properties": {} },
+  "handlerType": "http",
+  "handlerConfig": {
+    "method": "GET",
+    "url": "http://localhost:5100/health",
+    "successMessage": "PersonaleNet kører (status: {status}) og har {employees} medarbejder(e) registreret."
+  },
+  "roles": ["medarbejder", "hr"]
+}
+
+### … og brug det
+POST {{host}}/chat
+Content-Type: application/json
+
+{
+  "message": "Kører PersonaleNet lige nu, og hvor mange medarbejdere er der i systemet?"
+}
+
+### Deaktivér et tool uden at slette det
+PUT {{host}}/tools/hr_systemstatus
+Content-Type: application/json
+
+{
+  "description": "Tjekker om HR-systemet PersonaleNet kører.",
+  "parametersSchema": { "type": "object", "properties": {} },
+  "handlerType": "http",
+  "handlerConfig": { "method": "GET", "url": "http://localhost:5100/health" },
+  "isActive": false,
+  "roles": ["medarbejder", "hr"]
+}
+
+### Roller
+GET {{host}}/roles
+
+### ---- Fase 4.3: MCP ----
+
+### Registrér en MCP-server (filesystem-serveren over stdio; ret stien til jeres dokumentationsmappe)
+PUT {{host}}/mcp-servers/filer
+Content-Type: application/json
+
+{
+  "transport": "stdio",
+  "command": "npx",
+  "arguments": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\patri\\OneDrive\\Skrivebord\\My Projects\\ChatbotHelper\\data\\dokumentation"]
+}
+
+### Hvilke tools tilbyder serveren? (starter processen første gang — kan tage nogle sekunder)
+GET {{host}}/mcp-servers/filer/tools
+
+### Importér udvalgte tools som rækker med roller
+POST {{host}}/mcp-servers/filer/import
+Content-Type: application/json
+
+{
+  "tools": ["list_directory", "read_text_file", "search_files"],
+  "roles": ["medarbejder", "hr"]
+}
+
+### … og brug dem
+POST {{host}}/chat
+Content-Type: application/json
+
+{
+  "message": "Hvilke filer ligger i dokumentationsmappen?"
+}

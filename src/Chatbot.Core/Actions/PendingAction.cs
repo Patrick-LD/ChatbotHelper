@@ -23,13 +23,14 @@ public interface IPendingActionStore
 }
 
 /// <summary>
-/// Udfører en bekræftet handling. Hvert tool, der kræver bekræftelse, registrerer én executor
-/// for sit <see cref="ToolName"/>. Orkestratoren finder den ud fra den ventende handling.
+/// Udfører en bekræftet handling. Orkestratoren spørger de registrerede executors, hvem der kan
+/// håndtere den ventende handlings tool. Fra fase 4 er der én generisk executor for alle registry-tools;
+/// interfacet er bevaret, så et særligt tool stadig kan have sin egen.
 /// </summary>
 public interface IActionExecutor
 {
-    string ToolName { get; }
+    Task<bool> CanExecuteAsync(string toolName, CancellationToken cancellationToken = default);
 
     /// <summary>Udfører handlingen og returnerer en besked til brugeren om resultatet.</summary>
-    Task<string> ExecuteAsync(string parametersJson, CancellationToken cancellationToken = default);
+    Task<string> ExecuteAsync(PendingAction action, CancellationToken cancellationToken = default);
 }
