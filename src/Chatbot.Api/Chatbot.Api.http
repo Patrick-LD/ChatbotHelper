@@ -1,0 +1,79 @@
+@host = http://localhost:5022
+
+### Sundhedstjek
+GET {{host}}/health
+
+### Genopbyg dokumentationsindekset (kør efter ændringer i data/dokumentation)
+POST {{host}}/ingest
+
+### Rå søgning — viser præcis de chunks, botten ville få at læse
+GET {{host}}/search?q=Hvor mange feriedage har jeg om året?
+
+### Første besked — svaret indeholder et conversationId og eventuelle kilder
+# @name firstTurn
+POST {{host}}/chat
+Content-Type: application/json
+
+{
+  "message": "Hvordan opretter jeg en ny medarbejder?"
+}
+
+### Opfølgning i samme samtale — botten bør huske konteksten
+@conversationId = {{firstTurn.response.body.conversationId}}
+
+POST {{host}}/chat
+Content-Type: application/json
+
+{
+  "message": "Hvem har lov til at gøre det?",
+  "conversationId": "{{conversationId}}"
+}
+
+### Spørgsmål dokumentationen ikke dækker — botten bør sige det ærligt
+POST {{host}}/chat
+Content-Type: application/json
+
+{
+  "message": "Hvad er reglerne for firmabil?"
+}
+
+### ---- Fase 3: handlinger med bekræftelse (kræver at Chatbot.DummyHr kører på :5100) ----
+
+### Manglende oplysninger — botten skal spørge, ikke oprette
+POST {{host}}/chat
+Content-Type: application/json
+
+{
+  "message": "Opret en medarbejder der hedder Lars Hansen"
+}
+
+### Fuld information — botten opsummerer, og svaret har et pendingAction
+# @name prepare
+POST {{host}}/chat
+Content-Type: application/json
+
+{
+  "message": "Opret Mette Nielsen, mette.nielsen@firma.dk, som Konsulent i afdelingen Salg med start 1. november 2026"
+}
+
+### Bekræft — handlingen udføres uden modelkald
+@actionConversation = {{prepare.response.body.conversationId}}
+
+POST {{host}}/chat
+Content-Type: application/json
+
+{
+  "message": "ja",
+  "conversationId": "{{actionConversation}}"
+}
+
+### Slå op i HR-systemet
+POST {{host}}/chat
+Content-Type: application/json
+
+{
+  "message": "Er Mette Nielsen oprettet?"
+}
+
+### HR-dummy direkte
+GET http://localhost:5100/employees

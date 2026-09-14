@@ -11,8 +11,10 @@ publish.zip
 # dotenv files
 .env
 
-# API keys og secrets
-appsettings.Development.json
+# API keys og secrets hører ikke i en fil i repoet — brug 'dotnet user-secrets'
+# (udvikling) eller miljøvariabler/App Service-indstillinger (deploy).
+# appsettings.Development.json committes derfor med vilje: den indeholder logniveauer,
+# ikke hemmeligheder, og skal være ens for alle, der kloner projektet.
 
 # User-specific files
 *.rsuser

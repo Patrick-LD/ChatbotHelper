@@ -1,0 +1,5 @@
+{
+  // Peger C#-udvidelsen på hele solution'en, så alle projekter (inkl. Chatbot.Infrastructure
+  // og tools/Chatbot.Eval) indlæses — ellers kan den vælge et enkelt .csproj og vise falske fejl.
+  "dotnet.defaultSolution": "Chatbot.sln"
+}
