@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Chatbot.Core\Chatbot.Core.csproj" />
+    <ProjectReference Include="..\..\src\Chatbot.Infrastructure\Chatbot.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>
