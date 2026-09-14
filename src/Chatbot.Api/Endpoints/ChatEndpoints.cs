@@ -1,17 +1,17 @@
 using Chatbot.Core.Chat;
+using Npgsql;
 
 namespace Chatbot.Api.Endpoints;
 
 public static class ChatEndpoints
 {
-    /// <summary>Kommasepareret liste af roller, f.eks. "medarbejder,hr". Midlertidig stedfortræder for autentificering (fase 5.1).</summary>
-    public const string RolesHeader = "X-Roles";
-
     public static IEndpointRouteBuilder MapChatEndpoints(this IEndpointRouteBuilder app)
     {
+        // Brugeren og rollerne kommer fra autentificeringen (X-Api-Key → CurrentUser), ikke fra requestet.
+        // Fallback-policyen kræver en autentificeret bruger på alle endpoints — RequireAuthorization her er
+        // for læsbarhedens skyld.
         app.MapPost("/chat", async (
             ChatRequest request,
-            HttpRequest http,
             IChatService chatService,
             CancellationToken cancellationToken) =>
         {
@@ -20,16 +20,10 @@ public static class ChatEndpoints
                 return Results.BadRequest(new { error = "Feltet 'message' må ikke være tomt." });
             }
 
-            // Fase 4: brugerens roller afgør, hvilke tools modellen får. Indtil rigtig autentificering
-            // (fase 5.1) kommer de fra headeren X-Roles ("medarbejder,hr") — udelades den, gælder Tools:DefaultRoles.
-            var roles = http.Headers.TryGetValue(RolesHeader, out var header)
-                ? header.ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                : null;
-
             try
             {
                 var result = await chatService.SendAsync(
-                    new ChatTurnRequest(request.Message, request.ConversationId, roles),
+                    new ChatTurnRequest(request.Message, request.ConversationId),
                     cancellationToken);
 
                 return Results.Ok(new ChatResponse(
@@ -37,6 +31,14 @@ public static class ChatEndpoints
                     result.ConversationId,
                     result.Sources.Select(s => new SourceDto(s.Source, s.Heading, Math.Round(s.Score, 3))).ToList(),
                     result.PendingAction));
+            }
+            catch (ConversationOwnershipException)
+            {
+                // Ikke "findes ikke": brugeren skal vide, at id'et er gyldigt men ikke deres — og loggen har hvem der prøvede.
+                return Results.Problem(
+                    title: "Samtalen tilhører en anden bruger",
+                    detail: "Start en ny samtale ved at udelade conversationId.",
+                    statusCode: StatusCodes.Status403Forbidden);
             }
             catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -55,14 +57,26 @@ public static class ChatEndpoints
                     detail: $"Kunne ikke nå Ollama. Kører 'ollama serve', og er modellen hentet? ({ex.Message})",
                     statusCode: StatusCodes.Status503ServiceUnavailable);
             }
+            catch (NpgsqlException ex)
+            {
+                // Chathistorik og ventende handlinger ligger i databasen (fase 5.2) — uden den kan turen ikke gemmes.
+                return Results.Problem(
+                    title: "Databasen kunne ikke kontaktes",
+                    detail: $"Kører Postgres? Start den med 'docker compose up -d'. ({ex.Message})",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
         })
+        .RequireAuthorization()
         .WithName("PostChat")
         .WithSummary("Send en besked til chatbotten")
         .WithDescription(
-            "Returnerer modellens svar, et conversationId, de kilder i dokumentationen botten eventuelt slog op, " +
-            "og en eventuel handling der venter på bekræftelse. Send samme conversationId med i næste kald.")
+            "Kræver X-Api-Key. Returnerer modellens svar, et conversationId, de kilder i dokumentationen botten eventuelt slog op, " +
+            "og en eventuel handling der venter på bekræftelse. Send samme conversationId med i næste kald — kun den bruger, " +
+            "der startede samtalen, kan fortsætte den.")
         .Produces<ChatResponse>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .ProducesProblem(StatusCodes.Status504GatewayTimeout);
 

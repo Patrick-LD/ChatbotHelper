@@ -20,12 +20,6 @@ public sealed class ToolsOptions
     /// <summary>Hvor længe et forslag venter på bekræftelse, før det kasseres. Et gammelt "ja" må ikke udløse en glemt handling.</summary>
     [Range(1, 1440)]
     public int PendingActionTimeoutMinutes { get; set; } = 30;
-
-    /// <summary>
-    /// Roller en tur får, når kaldet ikke selv angiver nogen (X-Roles-headeren). Indtil fase 5.1 kobler
-    /// rigtig autentificering på, er det her, "hvem er brugeren" afgøres — sæt listen tom for at kræve headeren.
-    /// </summary>
-    public string[] DefaultRoles { get; set; } = ["medarbejder", "hr"];
 }
 
 public sealed class EmployeeApiOptions
@@ -38,7 +32,7 @@ public sealed class EmployeeApiOptions
 
 public sealed class ToolRegistryOptions
 {
-    /// <summary>Postgres med tool-tabellerne. Som udgangspunkt samme database som vektor-indekset — én database til det hele.</summary>
+    /// <summary>Postgres med tool-tabellerne, chathistorik og audit-log. Som udgangspunkt samme database som vektor-indekset — én database til det hele.</summary>
     [Required(AllowEmptyStrings = false, ErrorMessage = "Tools:Registry:ConnectionString mangler.")]
     public string ConnectionString { get; set; } = "Host=127.0.0.1;Port=5432;Database=chatbot;Username=chatbot;Password=chatbot";
 
@@ -49,6 +43,10 @@ public sealed class ToolRegistryOptions
     /// <summary>Længste tool-svar der gives videre til modellen. Længere svar klippes — et kontekstvindue er ikke uendeligt.</summary>
     [Range(500, 100_000)]
     public int MaxResultChars { get; set; } = 8000;
+
+    /// <summary>Antal gentagelser af idempotente HTTP-kald (GET/HEAD/OPTIONS) ved forbigående fejl. Skrivende kald gentages aldrig — et POST der nåede frem, må ikke sendes igen.</summary>
+    [Range(0, 5)]
+    public int HttpRetries { get; set; } = 2;
 }
 
 [OptionsValidator]

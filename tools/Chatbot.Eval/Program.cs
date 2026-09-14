@@ -20,6 +20,7 @@ using System.Text.Json;
 var setPath = args.Length > 0 ? args[0] : "docs/evaluering/evalueringssaet.json";
 var outputPath = args.Length > 1 ? args[1] : null;
 var baseUrl = Environment.GetEnvironmentVariable("CHATBOT_URL") ?? "http://localhost:5022";
+var apiKey = Environment.GetEnvironmentVariable("CHATBOT_API_KEY") ?? "dev-hr-2026-noegle"; // udviklingsnøglen med medarbejder+hr
 
 var jsonOptions = new JsonSerializerOptions
 {
@@ -62,15 +63,13 @@ foreach (var c in set.Cases)
     {
         try
         {
-            // Fase 4: en case kan angive "roles" — sendes som X-Roles, så rettighedsfiltreringen kan evalueres.
+            // Fase 5: API'et kræver en API-nøgle (X-Api-Key). Standardnøglen kommer fra CHATBOT_API_KEY;
+            // en case kan angive sin egen "apiKey" for at evaluere rettigheder (R01/R02).
             using var request = new HttpRequestMessage(HttpMethod.Post, "/chat")
             {
                 Content = JsonContent.Create(new { message = turn, conversationId }),
             };
-            if (c.Roles is { Count: > 0 })
-            {
-                request.Headers.Add("X-Roles", string.Join(",", c.Roles));
-            }
+            request.Headers.Add("X-Api-Key", string.IsNullOrWhiteSpace(c.ApiKey) ? apiKey : c.ApiKey);
 
             using var reply = await http.SendAsync(request);
             if (!reply.IsSuccessStatusCode)
@@ -221,7 +220,7 @@ sealed record EvalSet(string? Notes, List<EvalCase> Cases);
 /// <param name="Expected">Nøgleord der SKAL være i svaret. "a|b" betyder a eller b.</param>
 /// <param name="Forbidden">Nøgleord der IKKE må være i svaret (typisk hallucinationer).</param>
 /// <param name="ExpectedSource">Kildefil der skal være slået op. Tom streng = botten må ikke have fundet noget. null = ligegyldigt.</param>
-/// <param name="Roles">Roller der sendes som X-Roles (fase 4). null = API'ets standardroller.</param>
+/// <param name="ApiKey">API-nøgle for denne case (fase 5) — afgør bruger og roller. null = CHATBOT_API_KEY.</param>
 sealed record EvalCase(
     string Id,
     string? Question,
@@ -231,7 +230,7 @@ sealed record EvalCase(
     List<string>? Forbidden,
     string? ExpectedSource,
     bool? ExpectedPending,
-    List<string>? Roles)
+    string? ApiKey)
 {
     /// <summary>Overskrift i rapporten: spørgsmålet, eller første tur for flertrins-cases.</summary>
     public string Title => Question ?? (Turns is { Count: > 0 } ? Turns[0] + (Turns.Count > 1 ? $" (+{Turns.Count - 1} ture)" : "") : Id);

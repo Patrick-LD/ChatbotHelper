@@ -1,5 +1,6 @@
 using Chatbot.Core.Actions;
 using Chatbot.Core.Chat;
+using Chatbot.Core.Security;
 using Chatbot.Core.Tools.Registry;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -18,7 +19,7 @@ public class DynamicToolProviderTests
     }
 
     private static DynamicToolProvider Provider(FakeToolRegistry registry, params string[] roles)
-        => new(registry, [new FakeToolHandler()], new InMemoryPendingActionStore(), new TurnContext { Roles = roles }, NullLoggerFactory.Instance);
+        => new(registry, [new FakeToolHandler()], new InMemoryPendingActionStore(), new TurnContext { Roles = roles }, new InMemoryAuditLog(), NullLoggerFactory.Instance);
 
     [Fact]
     public async Task Medarbejder_ser_kun_laese_tools()
@@ -66,11 +67,13 @@ public class DynamicToolProviderTests
 
 public class DynamicActionExecutorTests
 {
-    private static (DynamicActionExecutor Executor, FakeToolHandler Handler) Create(FakeToolRegistry registry, params string[] roles)
+    private static (DynamicActionExecutor Executor, FakeToolHandler Handler, InMemoryAuditLog Audit) Create(FakeToolRegistry registry, params string[] roles)
     {
         var handler = new FakeToolHandler(reply: "Lars er nu oprettet (id 1).");
-        var executor = new DynamicActionExecutor(registry, [handler], new TurnContext { ConversationId = "c1", Roles = roles }, NullLogger<DynamicActionExecutor>.Instance);
-        return (executor, handler);
+        var audit = new InMemoryAuditLog();
+        var turn = new TurnContext { ConversationId = "c1", UserId = "hanne.hr", Roles = roles };
+        var executor = new DynamicActionExecutor(registry, [handler], turn, audit, NullLogger<DynamicActionExecutor>.Instance);
+        return (executor, handler, audit);
     }
 
     private static PendingAction Action() => new("opret_medarbejder", "Opret Lars", """{"navn":"Lars","email":"lars@firma.dk"}""", DateTimeOffset.UtcNow);
@@ -80,7 +83,7 @@ public class DynamicActionExecutorTests
     {
         var registry = new FakeToolRegistry();
         registry.Tools.Add(TestJson.Tool("opret_medarbejder", requiresConfirmation: true, summary: "Opret {navn}", roles: ["hr"]));
-        var (executor, handler) = Create(registry, "hr");
+        var (executor, handler, audit) = Create(registry, "hr");
 
         Assert.True(await executor.CanExecuteAsync("opret_medarbejder"));
         var reply = await executor.ExecuteAsync(Action());
@@ -88,6 +91,15 @@ public class DynamicActionExecutorTests
         Assert.Equal("Lars er nu oprettet (id 1).", reply);
         var call = Assert.Single(handler.Calls);
         Assert.Equal("lars@firma.dk", call.Arguments.GetProperty("email").GetString());
+
+        // Audit-loggen (fase 5.1): hvem, hvad, med hvilke parametre og hvad kom der ud af det.
+        var entry = Assert.Single(audit.Entries);
+        Assert.Equal(AuditKind.Executed, entry.Kind);
+        Assert.Equal("hanne.hr", entry.UserId);
+        Assert.Equal(["hr"], entry.Roles);
+        Assert.Equal("opret_medarbejder", entry.ToolName);
+        Assert.Contains("lars@firma.dk", entry.ParametersJson);
+        Assert.Equal("Lars er nu oprettet (id 1).", entry.Result);
     }
 
     [Fact]
@@ -95,18 +107,19 @@ public class DynamicActionExecutorTests
     {
         var registry = new FakeToolRegistry();
         registry.Tools.Add(TestJson.Tool("opret_medarbejder", requiresConfirmation: true, summary: "Opret {navn}", roles: ["hr"]));
-        var (executor, handler) = Create(registry, "medarbejder");
+        var (executor, handler, audit) = Create(registry, "medarbejder");
 
         var reply = await executor.ExecuteAsync(Action());
 
         Assert.Contains("Intet er ændret", reply);
         Assert.Empty(handler.Calls);
+        Assert.Equal(AuditKind.Denied, Assert.Single(audit.Entries).Kind);
     }
 
     [Fact]
     public async Task Kan_ikke_udfoere_tools_der_er_slettet_fra_registret()
     {
-        var (executor, _) = Create(new FakeToolRegistry(), "hr");
+        var (executor, _, _) = Create(new FakeToolRegistry(), "hr");
 
         Assert.False(await executor.CanExecuteAsync("opret_medarbejder"));
     }

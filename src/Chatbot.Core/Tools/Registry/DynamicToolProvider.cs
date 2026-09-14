@@ -1,5 +1,6 @@
 using Chatbot.Core.Actions;
 using Chatbot.Core.Chat;
+using Chatbot.Core.Security;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -19,6 +20,7 @@ public sealed class DynamicToolProvider : IChatToolProvider
     private readonly IReadOnlyDictionary<ToolHandlerType, IToolHandler> _handlers;
     private readonly IPendingActionStore _pending;
     private readonly TurnContext _turn;
+    private readonly IAuditLog _audit;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<DynamicToolProvider> _logger;
 
@@ -27,12 +29,14 @@ public sealed class DynamicToolProvider : IChatToolProvider
         IEnumerable<IToolHandler> handlers,
         IPendingActionStore pending,
         TurnContext turn,
+        IAuditLog audit,
         ILoggerFactory loggerFactory)
     {
         _registry = registry;
         _handlers = handlers.ToDictionary(h => h.HandlerType);
         _pending = pending;
         _turn = turn;
+        _audit = audit;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<DynamicToolProvider>();
     }
@@ -69,7 +73,7 @@ public sealed class DynamicToolProvider : IChatToolProvider
                 continue;
             }
 
-            tools.Add(new RegistryFunction(definition, handler, _pending, _turn, _loggerFactory.CreateLogger<RegistryFunction>()));
+            tools.Add(new RegistryFunction(definition, handler, _pending, _turn, _audit, _loggerFactory.CreateLogger<RegistryFunction>()));
         }
 
         _logger.LogInformation(

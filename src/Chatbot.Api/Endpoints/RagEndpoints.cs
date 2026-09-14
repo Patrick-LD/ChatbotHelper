@@ -14,6 +14,8 @@ public static class RagEndpoints
     {
         var group = app.MapGroup("").WithTags("RAG");
 
+        // Fase 5.1: at genopbygge indekset er drift (admin); rå søgning er for enhver autentificeret bruger,
+        // fordi den kun viser dokumentation, brugeren alligevel kan få gennem chatten.
         group.MapPost("/ingest", async (IngestionService ingestion, CancellationToken cancellationToken) =>
         {
             try
@@ -42,6 +44,7 @@ public static class RagEndpoints
                 return OllamaUnavailable(ex);
             }
         })
+        .RequireAuthorization(AuthorizationPolicies.Admin)
         .WithName("PostIngest")
         .WithSummary("Tøm og genopbyg dokumentationsindekset")
         .WithDescription(
@@ -77,6 +80,7 @@ public static class RagEndpoints
                 return OllamaUnavailable(ex);
             }
         })
+        .RequireAuthorization()
         .WithName("GetSearch")
         .WithSummary("Rå søgning i dokumentationen (uden modellen)")
         .WithDescription("Viser præcis de chunks, botten ville få at læse for spørgsmålet. Brug det til at fejlsøge retrieval.")
