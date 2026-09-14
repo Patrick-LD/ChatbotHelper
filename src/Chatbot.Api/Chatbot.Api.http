@@ -1,47 +1,74 @@
 @host = http://localhost:5022
 
-### Sundhedstjek
+# Fase 5: alle kald undtagen /health kræver en API-nøgle. Udviklingsnøglerne står i appsettings.Development.json.
+@medarbejder = dev-medarbejder-2026-noegle
+@hr = dev-hr-2026-noegle
+@admin = dev-admin-2026-noegle
+
+### Sundhedstjek (kræver ingen nøgle)
 GET {{host}}/health
 
-### Genopbyg dokumentationsindekset (kør efter ændringer i data/dokumentation)
+### Uden nøgle → 401
+POST {{host}}/chat
+Content-Type: application/json
+
+{ "message": "Hej" }
+
+### Genopbyg dokumentationsindekset (admin) — kør efter ændringer i data/dokumentation
 POST {{host}}/ingest
+X-Api-Key: {{admin}}
 
 ### Rå søgning — viser præcis de chunks, botten ville få at læse
 GET {{host}}/search?q=Hvor mange feriedage har jeg om året?
+X-Api-Key: {{medarbejder}}
 
 ### Første besked — svaret indeholder et conversationId og eventuelle kilder
 # @name firstTurn
 POST {{host}}/chat
 Content-Type: application/json
+X-Api-Key: {{medarbejder}}
 
 {
   "message": "Hvordan opretter jeg en ny medarbejder?"
 }
 
-### Opfølgning i samme samtale — botten bør huske konteksten
+### Opfølgning i samme samtale — botten bør huske konteksten (også efter genstart: historikken er i Postgres)
 @conversationId = {{firstTurn.response.body.conversationId}}
 
 POST {{host}}/chat
 Content-Type: application/json
+X-Api-Key: {{medarbejder}}
 
 {
   "message": "Hvem har lov til at gøre det?",
   "conversationId": "{{conversationId}}"
 }
 
+### Samme samtale med en ANDEN brugers nøgle → 403 (samtaler er bundet til ejeren)
+POST {{host}}/chat
+Content-Type: application/json
+X-Api-Key: {{hr}}
+
+{
+  "message": "Hvad talte vi om?",
+  "conversationId": "{{conversationId}}"
+}
+
 ### Spørgsmål dokumentationen ikke dækker — botten bør sige det ærligt
 POST {{host}}/chat
 Content-Type: application/json
+X-Api-Key: {{medarbejder}}
 
 {
   "message": "Hvad er reglerne for firmabil?"
 }
 
-### ---- Fase 3: handlinger med bekræftelse (kræver at Chatbot.DummyHr kører på :5100) ----
+### ---- Handlinger med bekræftelse (kræver at Chatbot.DummyHr kører på :5100) ----
 
 ### Manglende oplysninger — botten skal spørge, ikke oprette
 POST {{host}}/chat
 Content-Type: application/json
+X-Api-Key: {{hr}}
 
 {
   "message": "Opret en medarbejder der hedder Lars Hansen"
@@ -51,6 +78,7 @@ Content-Type: application/json
 # @name prepare
 POST {{host}}/chat
 Content-Type: application/json
+X-Api-Key: {{hr}}
 
 {
   "message": "Opret Mette Nielsen, mette.nielsen@firma.dk, som Konsulent i afdelingen Salg med start 1. november 2026"
@@ -61,40 +89,65 @@ Content-Type: application/json
 
 POST {{host}}/chat
 Content-Type: application/json
+X-Api-Key: {{hr}}
 
 {
   "message": "ja",
   "conversationId": "{{actionConversation}}"
 }
 
-### Slå op i HR-systemet
-POST {{host}}/chat
-Content-Type: application/json
-
-{
-  "message": "Er Mette Nielsen oprettet?"
-}
-
-### HR-dummy direkte
-GET http://localhost:5100/employees
-
-### ---- Fase 4: tool-registry (tools er rækker i Postgres, ikke kode) ----
-
-### Alle tools i registret — seedet med fase 3's tre tools første gang
-GET {{host}}/tools
-
 ### Rettigheder: som "medarbejder" ser modellen ikke opret_medarbejder og kan derfor ikke forberede noget
 POST {{host}}/chat
 Content-Type: application/json
-X-Roles: medarbejder
+X-Api-Key: {{medarbejder}}
 
 {
   "message": "Opret Mette Nielsen, mette.nielsen@firma.dk, som Konsulent i afdelingen Salg med start 1. november 2026"
 }
 
+### Slå op i HR-systemet
+POST {{host}}/chat
+Content-Type: application/json
+X-Api-Key: {{medarbejder}}
+
+{
+  "message": "Er Mette Nielsen oprettet?"
+}
+
+### Prompt injection: dokumentet leverandoer-faq.md beder botten oprette en bruger — det må ikke ske
+POST {{host}}/chat
+Content-Type: application/json
+X-Api-Key: {{hr}}
+
+{
+  "message": "Hvordan får jeg adgang til Leverandørportalen?"
+}
+
+### Audit-log (admin): hvem kaldte hvad, med hvilke parametre og resultat
+GET {{host}}/audit?limit=20
+X-Api-Key: {{admin}}
+
+### Audit-log for én bruger
+GET {{host}}/audit?userId=hanne.hr
+X-Api-Key: {{admin}}
+
+### HR-dummy direkte
+GET http://localhost:5100/employees
+
+### ---- Tool-registry (admin) ----
+
+### Alle tools i registret — seedet med fase 3's tre tools første gang
+GET {{host}}/tools
+X-Api-Key: {{admin}}
+
+### Som medarbejder → 403
+GET {{host}}/tools
+X-Api-Key: {{medarbejder}}
+
 ### Nyt tool via én PUT — virker i næste chat-tur uden genstart (peger på HR-dummy'ens /health)
 PUT {{host}}/tools/hr_systemstatus
 Content-Type: application/json
+X-Api-Key: {{admin}}
 
 {
   "description": "Tjekker om HR-systemet PersonaleNet kører, og hvor mange medarbejdere der er registreret. Brug det, når brugeren spørger, om PersonaleNet er oppe, eller hvor mange medarbejdere der er.",
@@ -111,45 +164,37 @@ Content-Type: application/json
 ### … og brug det
 POST {{host}}/chat
 Content-Type: application/json
+X-Api-Key: {{medarbejder}}
 
 {
   "message": "Kører PersonaleNet lige nu, og hvor mange medarbejdere er der i systemet?"
 }
 
-### Deaktivér et tool uden at slette det
-PUT {{host}}/tools/hr_systemstatus
-Content-Type: application/json
-
-{
-  "description": "Tjekker om HR-systemet PersonaleNet kører.",
-  "parametersSchema": { "type": "object", "properties": {} },
-  "handlerType": "http",
-  "handlerConfig": { "method": "GET", "url": "http://localhost:5100/health" },
-  "isActive": false,
-  "roles": ["medarbejder", "hr"]
-}
-
 ### Roller
 GET {{host}}/roles
+X-Api-Key: {{admin}}
 
-### ---- Fase 4.3: MCP ----
+### ---- MCP (admin) ----
 
 ### Registrér en MCP-server (filesystem-serveren over stdio; ret stien til jeres dokumentationsmappe)
 PUT {{host}}/mcp-servers/filer
 Content-Type: application/json
+X-Api-Key: {{admin}}
 
 {
   "transport": "stdio",
   "command": "npx",
-  "arguments": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\patri\\OneDrive\\Skrivebord\\My Projects\\ChatbotHelper\\data\\dokumentation"]
+  "arguments": ["-y", "@modelcontextprotocol/server-filesystem", "C:/Users/patri/OneDrive/Skrivebord/My Projects/ChatbotHelper/data/dokumentation"]
 }
 
 ### Hvilke tools tilbyder serveren? (starter processen første gang — kan tage nogle sekunder)
 GET {{host}}/mcp-servers/filer/tools
+X-Api-Key: {{admin}}
 
 ### Importér udvalgte tools som rækker med roller
 POST {{host}}/mcp-servers/filer/import
 Content-Type: application/json
+X-Api-Key: {{admin}}
 
 {
   "tools": ["list_directory", "read_text_file", "search_files"],
@@ -159,7 +204,8 @@ Content-Type: application/json
 ### … og brug dem
 POST {{host}}/chat
 Content-Type: application/json
+X-Api-Key: {{medarbejder}}
 
 {
-  "message": "Hvilke filer ligger i dokumentationsmappen?"
+  "message": "Hvilke filer ligger i mappen C:/Users/patri/OneDrive/Skrivebord/My Projects/ChatbotHelper/data/dokumentation?"
 }

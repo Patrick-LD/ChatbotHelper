@@ -10,8 +10,7 @@ namespace Chatbot.Api.Endpoints;
 /// uden din hjælp?": en PUT med navn, beskrivelse, skema og handler-konfiguration — så har modellen
 /// toolet i næste tur, uden genstart og uden deploy.
 ///
-/// Der er endnu ingen adgangskontrol på disse endpoints (som på /ingest). Det er fase 5.1 —
-/// indtil da må API'et ikke være tilgængeligt for andre end udviklerne.
+/// Fra fase 5.1 kræver alle endpoints her rollen <c>admin</c> (API-nøgle med admin i Auth:ApiKeys).
 /// </summary>
 public static class ToolEndpoints
 {
@@ -19,7 +18,8 @@ public static class ToolEndpoints
 
     public static IEndpointRouteBuilder MapToolEndpoints(this IEndpointRouteBuilder app)
     {
-        var tools = app.MapGroup("/tools").WithTags("Tool-registry");
+        // Fase 5.1: registret er drift. Kun administratorer må ændre, hvad modellen kan — og for hvem.
+        var tools = app.MapGroup("/tools").WithTags("Tool-registry").RequireAuthorization(AuthorizationPolicies.Admin);
 
         tools.MapGet("", async (IToolRegistry registry, CancellationToken ct) =>
             await Guard(async () => Results.Ok((await registry.ListAsync(ct)).Select(ToDto).ToList())))
@@ -92,7 +92,7 @@ public static class ToolEndpoints
             .Produces(StatusCodes.Status204NoContent)
             .Produces(StatusCodes.Status404NotFound);
 
-        var roles = app.MapGroup("/roles").WithTags("Tool-registry");
+        var roles = app.MapGroup("/roles").WithTags("Tool-registry").RequireAuthorization(AuthorizationPolicies.Admin);
 
         roles.MapGet("", async (IToolRegistry registry, CancellationToken ct) =>
             await Guard(async () => Results.Ok(await registry.ListRolesAsync(ct))))
@@ -115,7 +115,7 @@ public static class ToolEndpoints
             .Produces<RoleDefinition>()
             .Produces(StatusCodes.Status400BadRequest);
 
-        var servers = app.MapGroup("/mcp-servers").WithTags("MCP");
+        var servers = app.MapGroup("/mcp-servers").WithTags("MCP").RequireAuthorization(AuthorizationPolicies.Admin);
 
         servers.MapGet("", async (IToolRegistry registry, CancellationToken ct) =>
             await Guard(async () => Results.Ok((await registry.ListMcpServersAsync(ct)).Select(ToDto).ToList())))
