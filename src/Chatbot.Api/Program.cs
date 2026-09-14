@@ -3,8 +3,9 @@ using Chatbot.Core.Chat;
 using Chatbot.Core.Actions;
 using Chatbot.Core.Rag;
 using Chatbot.Core.Tools;
-using Chatbot.Infrastructure.Hr;
+using Chatbot.Core.Tools.Registry;
 using Chatbot.Infrastructure.Rag;
+using Chatbot.Infrastructure.Tools;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using OllamaSharp;
@@ -76,22 +77,28 @@ builder.Services.AddSingleton<IDocumentLoader, FileDocumentLoader>();
 builder.Services.AddScoped<IngestionService>();
 builder.Services.AddScoped<IDocumentSearchService, DocumentSearchService>();
 
-// Handlings-tools (fase 3): HR-API bag IEmployeeService, ventende handlinger pr. samtale.
-builder.Services.AddHttpClient<IEmployeeService, HttpEmployeeService>(client =>
-{
-    client.BaseAddress = new Uri(toolsOptions.EmployeeApi.BaseUrl);
-    client.Timeout = TimeSpan.FromSeconds(15);
-});
+// Tool-registret (fase 4): tools er rækker i Postgres, ikke klasser i koden. Registret læses
+// pr. tur og filtreres på turens roller; seedes første gang med fase 3's tre tools.
+builder.Services.AddSingleton<IToolRegistry, PgToolRegistry>();
+builder.Services.AddHostedService<ToolRegistryInitializer>();
 builder.Services.AddSingleton<IPendingActionStore, InMemoryPendingActionStore>();
 
-// Pr. request: samtalens id, hvad blev hentet i denne tur, og hvilke tools må modellen se.
-// Rækkefølgen af providers er den rækkefølge, modellen ser tools i.
+// Én handler pr. tool-type. Nye tool-TYPER er kode; nye tools af en kendt type er data.
+builder.Services.AddHttpClient(HttpToolHandler.HttpClientName);
+builder.Services.AddSingleton<IToolHandler, HttpToolHandler>();
+builder.Services.AddSingleton<McpClientPool>();
+builder.Services.AddSingleton<IToolHandler, McpToolHandler>();
+builder.Services.AddScoped<IToolHandler, InternalToolHandler>();
+
+// Interne tools: kode, registret kan pege på. Dokumentationssøgningen er scoped, fordi den
+// registrerer hits i turens RetrievalContext.
+builder.Services.AddScoped<IInternalTool, DocumentSearchTool>();
+
+// Pr. request: samtalens id og roller, hvad blev hentet i denne tur, og hvilke tools må modellen se.
 builder.Services.AddScoped<TurnContext>();
 builder.Services.AddScoped<RetrievalContext>();
-builder.Services.AddScoped<IChatToolProvider, DocumentSearchTool>();
-builder.Services.AddScoped<EmployeeTools>();
-builder.Services.AddScoped<IChatToolProvider>(sp => sp.GetRequiredService<EmployeeTools>());
-builder.Services.AddScoped<IActionExecutor>(sp => sp.GetRequiredService<EmployeeTools>());
+builder.Services.AddScoped<IChatToolProvider, DynamicToolProvider>();
+builder.Services.AddScoped<IActionExecutor, DynamicActionExecutor>();
 builder.Services.AddScoped<IChatService, ChatService>();
 
 var app = builder.Build();
@@ -100,13 +107,15 @@ var app = builder.Build();
 // Kører der flere Ollama-instanser på maskinen, er dette den hurtigste vej til at se det.
 app.Logger.LogInformation(
     "Chatbot klar. Model {Model} via {Endpoint}. Historik: {MaxHistoryMessages} beskeder. " +
-    "Embeddings: {EmbeddingModel} ({Dimensions} dim). Dokumenter: {DocumentsPath}. HR-API: {EmployeeApi}.",
+    "Embeddings: {EmbeddingModel} ({Dimensions} dim). Dokumenter: {DocumentsPath}. " +
+    "Standardroller: [{DefaultRoles}]. HR-API (seed): {EmployeeApi}.",
     chatbotOptions.Ollama.Model,
     chatbotOptions.Ollama.Endpoint,
     chatbotOptions.MaxHistoryMessages,
     ragOptions.Embedding.Model,
     ragOptions.Embedding.Dimensions,
     Path.GetFullPath(ragOptions.DocumentsPath),
+    string.Join(", ", toolsOptions.DefaultRoles),
     toolsOptions.EmployeeApi.BaseUrl);
 
 if (app.Environment.IsDevelopment())
@@ -121,6 +130,7 @@ app.UseHttpsRedirection();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).WithName("GetHealth");
 app.MapChatEndpoints();
 app.MapRagEndpoints();
+app.MapToolEndpoints();
 
 app.Run();
 

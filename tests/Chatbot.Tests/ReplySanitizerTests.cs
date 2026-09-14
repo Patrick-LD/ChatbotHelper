@@ -19,11 +19,18 @@ public class ReplySanitizerTests
         => Assert.Equal(expected, ReplySanitizer.Unwrap(reply));
 
     [Theory]
+    [InlineData("""{"name": "opret_medarbejder", "parameters": {"fuld_navn": "Mette Nielsen", "email": "mette@firma.dk"}}""")]
+    [InlineData("""{"name":"find_medarbejder","arguments":{"navn":"Lars"}}""")]
+    public void Unwrap_erstatter_et_opdigtet_tool_kald_med_en_forklaring(string reply)
+        => Assert.Equal(ReplySanitizer.NoSuchToolReply, ReplySanitizer.Unwrap(reply));
+
+    [Theory]
     [InlineData("Almindelig tekst.")]
     [InlineData("{ikke json}")]
     [InlineData("""{"type":"message"}""")]
     [InlineData("""{"text":""}""")]
     [InlineData("""[{"text":"liste"}]""")]
+    [InlineData("""{"name":"Lars Hansen","email":"lars@firma.dk"}""")]
     [InlineData("")]
     public void Unwrap_lader_alt_andet_vaere(string reply)
         => Assert.Equal(reply, ReplySanitizer.Unwrap(reply));
