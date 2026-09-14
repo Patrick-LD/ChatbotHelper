@@ -232,7 +232,7 @@ af tools pr. rolle lavt, og test med en cloud-model før fase 5's prompt-finpuds
 - [x] Flyt chathistorik til databasen → `PgConversationStore` (`conversations`, `messages`) og `PgPendingActionStore` (`pending_actions`). Samtaler og ventende handlinger overlever genstart; `MaxHistoryMessages` er et `LIMIT` i SQL. Verificeret: opfølgende spørgsmål i samme samtale husker konteksten
 
 **5.3 Brugeroplevelse**
-- [x] Finpuds systemprompten, så botten aktivt guider → GUIDNING-afsnit; verificeret: "Vi har ansat en ny sælger …" → "Det lyder som om du har brug for at oprette en ny medarbejder …". Fund: den guidende prompt fik llama3.1 til at kalde toolet med pladsholdere (`[sælgerens navn]`) og opdigtede e-mails i stedet for at spørge → `ValidateArguments` håndhæver nu skemaets `required`/`format`/`pattern`/`minLength`/`enum` og afviser pladsholdere og `@example.com` før et forslag gemmes
+- [x] Finpuds systemprompten, så botten aktivt guider → første forsøg (et GUIDNING- og et SIKKERHED-afsnit) så rigtigt ud manuelt, men evalueringen faldt til 20/29 (69 %): llama3.1 sprang søgningen over på seks dokumentationsspørgsmål og opdigtede e-mail/afdeling/startdato på T01/T06 i stedet for at spørge ([rapport](docs/evaluering/resultater/2026-09-14-fase-5-lang-prompt.md)). Prompten er kortet ned igen til fase 4-formen med én sikkerhedssætning og "spørg først — kald ikke toolet endnu" som én sætning. Fundet førte til `ValidateArguments`: skemaets `required`/`format`/`pattern`/`minLength`/`enum` håndhæves, og pladsholdere (`[navn]`) og `@example.com` afvises før et forslag gemmes
 - [x] Lad botten henvise til kilder → prompten beder om kilder i almindeligt sprog; verificeret: "Det står i personalehaandbogen under Ferie, at …"
 - [ ] Test med 2-3 rigtige brugere → kan ikke automatiseres. Skabelon og fremgangsmåde i [docs/evaluering/brugertest.md](docs/evaluering/brugertest.md): giv dem en nøgle med deres rigtige rolle, skriv spørgsmålene ned ordret, før de fejlede ind i evalueringssættet før noget rettes
 
@@ -248,6 +248,28 @@ af tools pr. rolle lavt, og test med en cloud-model før fase 5's prompt-finpuds
 👉 Gennemgang af koden og begrundelserne: [docs/FASE-5-FORKLARET.md](docs/FASE-5-FORKLARET.md)
 
 **Leverance:** En bot du tør give til andre — med nøgle, roller, ejerskab, audit og bekræftelse. 124 enhedstests grønne.
+
+### Fase 6 — Frontend (Vue)
+**Mål:** En brugerflade, medarbejdere kan bruge — i IST's udtryk.
+
+**6.1 Fundament**
+- [x] Vue 3 + Vite + TypeScript + Pinia + Vue Router i `frontend/` (`npm create vue@latest` med Vitest og ESLint/oxlint). Vite-proxy `/api` → `http://localhost:5022`, så udvikling kører uden CORS; produktion bygger API-adressen ind via `VITE_API_BASE`
+- [x] Designtokens læst fra ist.com's tema (`frontend/src/styles/tokens.css`): mint `#c9f6dc`, mørk teal `#174655`, pasteller `#fff6d9`/`#ffd3ca`, sort navigation, pill-knapper (500px, 2px kant, 700), 20px-kort, 24px gap, 1200px maks. PP Object Sans/PP Editorial New er kommercielle → system-sans + Instrument Serif nu; `fonts.css` er klar til self-hostede filer i `public/fonts/` (gitignored)
+- [x] Backend: `GET /me` (bruger-id, navn, roller for nøglen) og CORS-policy fra `Cors:AllowedOrigins` (kun `X-Api-Key` + `Content-Type`, kun konfigurerede origins; tom liste = ingen CORS)
+
+**6.2 Login og chat**
+- [x] Login med API-nøgle: valideres mod `/me`, gemmes i `sessionStorage` (overlever reload, ikke lukket fane); dev-genveje til de tre udviklingsnøgler kun i `import.meta.env.DEV`. Router-guard uden nøgle → `/login`; 401 fra API'et logger ud
+- [x] Chat: beskedbobler, "skriver…"-indikator, kilder som foldbar liste ("personalehaandbog › Ferie · 0,73"), forslag på tom side, "Ny samtale", Enter sender / Shift+Enter ny linje, `aria-live` på svar
+- [x] Bekræftelses-kort når `pendingAction` er sat: "Ja, udfør" / "Nej, annullér" sender præcis `ja`/`nej` (det `ConfirmationParser` genkender); feltet er stadig åbent til rettelser
+- [x] Fejl: API'ets to fejlformer (`{error}` og ProblemDetails) normaliseres til én `ApiError`; 403 (andres samtale) nulstiller samtalen, 503/504/netværk giver fejlboble med "Prøv igen", som gensender uden dubletter
+
+**6.3 Kvalitet**
+- [x] 24 Vitest-tests (fejlnormalisering, auth- og chat-store inkl. ja/nej, retry og 401/403, komponenter), `vue-tsc` typecheck, ESLint + oxlint; nyt `frontend`-job i CI (node 24, `npm ci`, lint, typecheck, test, build); `deploy-frontend.yml` opdateret til node 24, `npm ci` og `VITE_API_BASE` fra repo-variablen `API_BASE_URL`
+- [ ] Brugertest med rigtige brugere — samme skabelon som fase 5.3 ([docs/evaluering/brugertest.md](docs/evaluering/brugertest.md))
+
+👉 Gennemgang af koden og begrundelserne: [docs/FASE-6-FORKLARET.md](docs/FASE-6-FORKLARET.md)
+
+**Leverance:** `cd frontend && npm run dev` → log ind med en dev-nøgle → spørg, få svar med kilder, bed om en oprettelse og bekræft med ét klik.
 
 ---
 

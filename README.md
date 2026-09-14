@@ -12,6 +12,7 @@ vurderer selv, om et spørgsmål kræver dokumentationssøgning, et tool-kald el
 👉 **[docs/FASE-3-FORKLARET.md](docs/FASE-3-FORKLARET.md)** — handlings-tools og bekræftelses-flowet forklaret.
 👉 **[docs/FASE-4-FORKLARET.md](docs/FASE-4-FORKLARET.md)** — tool-registry i databasen, rettigheder og MCP forklaret.
 👉 **[docs/FASE-5-FORKLARET.md](docs/FASE-5-FORKLARET.md)** — autentificering, audit-log, prompt injection og robusthed forklaret.
+👉 **[docs/FASE-6-FORKLARET.md](docs/FASE-6-FORKLARET.md)** — Vue-frontend'en: opbygning, designtokens fra ist.com, CORS og hosting.
 
 ## Teknologi
 
@@ -23,6 +24,7 @@ vurderer selv, om et spørgsmål kræver dokumentationssøgning, et tool-kald el
 | Embeddings | Ollama (`nomic-embed-text`) |
 | Vektor-database | Postgres + pgvector (Docker) |
 | Tool-protokol | MCP (`ModelContextProtocol`) |
+| Frontend | Vue 3 + Vite + TypeScript + Pinia (`frontend/`), design efter ist.com |
 
 ## Status
 
@@ -34,6 +36,7 @@ vurderer selv, om et spørgsmål kræver dokumentationssøgning, et tool-kald el
 | Fase 3 — Statiske tools | ✅ 23/26 (88 %), tool-scenarier 6/6 |
 | Fase 4 — Dynamisk tool-registry + MCP | ✅ 24/28 (86 %), tool- og rettigheds-scenarier 8/8; tools er rækker i Postgres, MCP-server importeret |
 | Fase 5 — Hærdning og guidning | ✅ API-nøgler og roller, audit-log, historik i Postgres, prompt injection-test; brugertest med rigtige brugere udestår |
+| Fase 6 — Frontend (Vue) | ✅ login med API-nøgle, chat med kilder og bekræftelses-kort, IST-design; 24 frontend-tests |
 
 ## Kom i gang
 
@@ -76,6 +79,12 @@ curl -X POST http://localhost:5022/chat -H "Content-Type: application/json" \
   -d '{"message":"ja","conversationId":"<id fra svaret>"}'
 ```
 
+**Frontend (fase 6):** i en anden terminal `cd frontend && npm install && npm run dev` → http://localhost:5173.
+Log ind med en udviklingsnøgle (login-siden har genveje i dev-mode). Vite proxyer `/api` til API'et på :5022,
+så der skal ingen CORS til lokalt; i produktion bygges API'ets adresse ind via `VITE_API_BASE`, og API'et
+skal have frontend'ens origin i `Cors:AllowedOrigins`. Kør `npm run lint`, `npm run typecheck`, `npm test`
+og `npm run build` før en PR — CI gør det samme.
+
 Alle kald undtagen `/health` kræver en API-nøgle i headeren `X-Api-Key` (fase 5). Nøglen afgør bruger-id og roller;
 udviklingsnøglerne står i [appsettings.Development.json](src/Chatbot.Api/appsettings.Development.json)
 (`dev-medarbejder-…`, `dev-hr-…`, `dev-admin-…`). En samtale kan kun fortsættes af den bruger, der startede den.
@@ -109,6 +118,7 @@ cases med egen `apiKey` (R01/R02) bruger den i stedet, så rettigheder kan evalu
 | `src/Chatbot.Core` | Orkestrering (`ChatService`, `IChatToolProvider`, bekræftelses-flow), RAG (`TextChunker`, `IngestionService`, `DocumentSearchTool`), tool-registry (`ToolDefinition`, `RegistryFunction` med argumentvalidering, `DynamicToolProvider`, `IToolHandler`, `ToolSeed`), sikkerhed (`CurrentUser`, `IAuditLog`), `PendingAction`, `ConfirmationParser` |
 | `src/Chatbot.Infrastructure` | Implementeringer mod Postgres og eksterne systemer: `PgVectorStore`, `PgToolRegistry`, `PgConversationStore`, `PgPendingActionStore`, `PgAuditLog`, `HttpToolHandler`, `McpToolHandler` + `McpClientPool` |
 | `src/Chatbot.DummyHr` | Dummy-HR-API i hukommelsen — "PersonaleNet" til test af handlinger |
+| `frontend` | Vue 3-klient: login med API-nøgle, chat med kilder og bekræftelses-kort. `src/api` (klient + fejlnormalisering), `src/stores` (auth, chat), `src/components`, `src/styles/tokens.css` (designtokens fra ist.com) |
 | `tests/Chatbot.Tests` | Enhedstests mod fakes: `FakeChatClient`, `FakeEmbeddingGenerator`, `InMemoryVectorStore`, `FakeToolRegistry`, `FakeToolHandler` |
 | `tools/Chatbot.Eval` | Konsolværktøj der kører evalueringssættet og skriver en Markdown-rapport |
 | `data/dokumentation` | Testdokumentation (fiktiv) der indekseres af `/ingest` |
